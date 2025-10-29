@@ -1,96 +1,176 @@
-# CourseQuest - USC Course Planning Platform
+# CourseQuest 🎓
 
-A comprehensive course planning and review platform for USC students, built from a Figma prototype.
+A comprehensive USC-themed course planning and scheduling application built with React, TypeScript, and Tailwind CSS. CourseQuest helps USC students discover, plan, and manage their academic journey with an intuitive interface and powerful features.
 
-## Features
+## ✨ Features
 
-- **Course Discovery**: Browse and search through USC's course catalog
-- **Student Reviews**: Read authentic student reviews and ratings
-- **Smart Scheduling**: Visual calendar planning with conflict detection
-- **User Profiles**: Track your course history and favorites
-- **Syllabus Archive**: Access course syllabi and materials
-- **USC Branding**: Authentic USC colors and design
+### 🔐 **Complete Authentication System**
+- **USC Email Validation**: Only @usc.edu emails can create accounts
+- **Secure Login/Signup**: Username or email login with password protection
+- **Session Management**: Persistent login across browser sessions
+- **User Profile Management**: Track academic progress and course history
 
-## Getting Started
+### 📚 **Advanced Course Browser**
+- **Comprehensive Course Database**: 30+ courses including Viterbi School of Engineering
+- **Smart Filtering**: Filter by department, rating, workload, prerequisites, and credits
+- **Real-time Search**: Search courses by code, title, or professor
+- **Course Details**: Detailed information with schedules, prerequisites, and evaluation methods
+
+### 📅 **Interactive Calendar System**
+- **Visual Schedule Planning**: Weekly grid view with time slots
+- **Conflict Detection**: Automatic detection of scheduling conflicts
+- **Credit Tracking**: Monitor target vs. enrolled credits
+- **Course Management**: Add/remove courses with one click
+
+### 👤 **Profile & Progress Tracking**
+- **Academic Dashboard**: Track completed, enrolled, and required credits
+- **Course History**: Manage completed courses with search functionality
+- **Review System**: Write and manage course reviews
+- **Favorites**: Save courses for later consideration
+
+### ⭐ **Dynamic Review System**
+- **User Reviews**: Write detailed reviews with ratings
+- **Anonymous Options**: Post reviews anonymously if preferred
+- **Review Management**: Edit or delete your own reviews
+- **Dynamic Ratings**: Course ratings update based on user reviews
+
+## 🛠️ Tech Stack
+
+- **Frontend**: React 18, TypeScript, Vite
+- **Styling**: Tailwind CSS, Shadcn/ui components
+- **Icons**: Lucide React
+- **State Management**: React Hooks with localStorage persistence
+- **Build Tool**: Vite
+- **UI Components**: Radix UI primitives with custom styling
+
+## 🚀 Getting Started
 
 ### Prerequisites
-- Node.js (v16 or higher)
+- Node.js (version 16 or higher)
 - npm or yarn
 
 ### Installation
 
-1. Install dependencies:
+1. **Clone the repository:**
+```bash
+git clone https://github.com/YOUR_USERNAME/CourseQuest.git
+cd CourseQuest
+```
+
+2. **Install dependencies:**
 ```bash
 npm install
 ```
 
-2. Start the development server:
+3. **Start the development server:**
 ```bash
 npm run dev
 ```
 
-3. Open your browser and navigate to `http://localhost:5173`
+4. **Open your browser:**
+Navigate to [http://localhost:5173](http://localhost:5173)
 
-### Building for Production
+## 📋 Available Scripts
 
-```bash
-npm run build
-```
+- `npm run dev` - Start development server
+- `npm run build` - Build for production
+- `npm run preview` - Preview production build
+- `npm run lint` - Run ESLint
 
-The built files will be in the `dist` directory.
-
-## Project Structure
+## 📁 Project Structure
 
 ```
 CourseQuest/
-├── components/           # React components
-│   ├── ui/             # Reusable UI components
-│   ├── landing-page.tsx
-│   ├── course-browser.tsx
-│   ├── course-detail.tsx
-│   ├── calendar-view.tsx
-│   ├── login-page.tsx
-│   └── profile-page.tsx
-├── App.tsx             # Main application component
-├── main.tsx           # Application entry point
-├── globals.css        # Global styles and CSS variables
-└── package.json       # Dependencies and scripts
+├── components/
+│   ├── ui/                    # Reusable UI components (Shadcn/ui)
+│   ├── course-browser.tsx     # Course search and filtering
+│   ├── calendar-view.tsx      # Visual schedule planner
+│   ├── course-detail.tsx      # Individual course information
+│   ├── profile-page.tsx       # User profile and course history
+│   ├── login-page.tsx         # User authentication
+│   ├── signup-page.tsx        # User registration
+│   ├── landing-page.tsx       # Homepage
+│   ├── course-data.ts         # Course database and types
+│   └── user-data.ts           # User management system
+├── App.tsx                    # Main application component
+├── main.tsx                   # Application entry point
+├── globals.css                # Global styles and CSS variables
+└── package.json               # Dependencies and scripts
 ```
 
-## Key Components
+## 🎯 Key Features in Detail
 
-- **LandingPage**: Hero section and feature overview
-- **CourseBrowser**: Course search and filtering
-- **CourseDetail**: Detailed course information and reviews
-- **CalendarView**: Visual schedule planning
-- **ProfilePage**: User settings and course history
+### Course Management
+- **30+ Courses**: Computer Science, Engineering, Mathematics, Sciences, and more
+- **Viterbi Engineering**: EE, AME, ISE, BME, and CE courses
+- **Real-time Filtering**: Department, rating, workload, prerequisites, credits
+- **Search Functionality**: Find courses by code, title, or professor
 
-## Technologies Used
+### Calendar Planning
+- **Weekly View**: Monday-Friday schedule with time slots
+- **Conflict Detection**: Visual indicators for scheduling conflicts
+- **Credit Management**: Track target vs. enrolled credits
+- **Course Addition**: One-click course addition to calendar
 
-- React 18
-- TypeScript
-- Vite (build tool)
-- Tailwind CSS (styling)
-- Lucide React (icons)
-- Radix UI (component primitives)
-- Sonner (notifications)
+### User Experience
+- **USC Theming**: Authentic cardinal red (#990000) and gold (#FFCC00) colors
+- **Responsive Design**: Works on desktop, tablet, and mobile
+- **Smooth Animations**: Polished interactions and transitions
+- **Accessibility**: Keyboard navigation and screen reader support
 
-## USC Branding
+## 🔧 Development
 
-The application uses official USC colors:
-- Cardinal Red: #990000
-- Gold: #FFCC00
+### Adding New Courses
+1. Edit `components/course-data.ts`
+2. Add course object to `mockCourses` array
+3. Include all required fields: id, code, title, credits, professor, department, etc.
 
-## Development
+### Styling Guidelines
+- Use USC colors: `#990000` (cardinal red) and `#FFCC00` (gold)
+- Follow Tailwind CSS utility-first approach
+- Maintain consistency with Shadcn/ui component patterns
 
-The project uses Vite for fast development and building. Hot module replacement is enabled for instant updates during development.
+### State Management
+- User data: `user-data.ts` with localStorage persistence
+- Course data: `course-data.ts` with mock data
+- Application state: React hooks in `App.tsx`
 
-## Deployment
+## 🤝 Contributing
 
-The built application can be deployed to any static hosting service like:
-- Vercel
-- Netlify
-- GitHub Pages
-- AWS S3
+1. **Fork the repository**
+2. **Create a feature branch**: `git checkout -b feature/amazing-feature`
+3. **Make your changes**: Follow the coding standards and add tests if applicable
+4. **Commit your changes**: `git commit -m 'Add some amazing feature'`
+5. **Push to the branch**: `git push origin feature/amazing-feature`
+6. **Open a Pull Request**: Describe your changes and link any related issues
 
-Simply upload the contents of the `dist` directory to your hosting service.
+### Development Guidelines
+- Use TypeScript for type safety
+- Follow React best practices and hooks patterns
+- Maintain USC branding consistency
+- Test on multiple screen sizes
+- Ensure accessibility compliance
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- **USC** for the authentic branding and color scheme
+- **Shadcn/ui** for the beautiful component library
+- **Radix UI** for accessible component primitives
+- **Tailwind CSS** for the utility-first styling approach
+- **Vite** for the fast development experience
+- **React & TypeScript communities** for excellent tooling and documentation
+
+## 📞 Support
+
+For questions, issues, or contributions, please:
+1. Check existing issues on GitHub
+2. Create a new issue with detailed description
+3. Contact the development team
+
+---
+
+**Built with ❤️ for USC students by USC students** 🎓
