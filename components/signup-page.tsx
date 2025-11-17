@@ -47,7 +47,7 @@ export function SignupPage({ onBack, onSignupSuccess, onLogin }: SignupPageProps
     if (!formData.email) {
       newErrors.email = 'Email is required';
     } else if (!userDatabase.isValidUSCEmail(formData.email)) {
-      newErrors.email = 'Please use a valid @usc.edu email address';
+      newErrors.email = 'Please enter a valid USC email';
     }
 
     // Validate password
@@ -276,3 +276,4 @@ export function SignupPage({ onBack, onSignupSuccess, onLogin }: SignupPageProps
     </div>
   );
 }
+

@@ -6,9 +6,10 @@ import { BookOpen, Calendar, Star } from 'lucide-react';
 
 interface LandingPageProps {
   onGetStarted: () => void;
+  onStartPlanning?: () => void;
 }
 
-export function LandingPage({ onGetStarted }: LandingPageProps) {
+export function LandingPage({ onGetStarted, onStartPlanning }: LandingPageProps) {
   return (
     <div className="min-h-screen bg-gradient-to-br from-white via-gray-50 to-gray-100">
       {/* Hero Section */}
@@ -32,7 +33,7 @@ export function LandingPage({ onGetStarted }: LandingPageProps) {
           <div className="flex flex-col sm:flex-row gap-4 justify-center mb-12">
             <Button 
               size="lg" 
-              onClick={onGetStarted}
+              onClick={onStartPlanning || onGetStarted}
               style={{ backgroundColor: '#990000', color: 'white' }}
               className="px-12 py-6 text-lg hover:opacity-90"
             >
@@ -49,22 +50,6 @@ export function LandingPage({ onGetStarted }: LandingPageProps) {
               <BookOpen className="mr-2 h-6 w-6" />
               Browse Courses
             </Button>
-          </div>
-
-          {/* Quick Stats */}
-          <div className="flex flex-wrap justify-center gap-6 text-sm text-muted-foreground">
-            <div className="flex items-center gap-2">
-              <Badge variant="secondary" style={{ backgroundColor: '#FFCC00', color: '#000' }}>5,200+</Badge>
-              <span>USC Course Reviews</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Badge variant="secondary" style={{ backgroundColor: '#FFCC00', color: '#000' }}>850+</Badge>
-              <span>Professors Rated</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Badge variant="secondary" style={{ backgroundColor: '#FFCC00', color: '#000' }}>25,000+</Badge>
-              <span>Trojans Helped</span>
-            </div>
           </div>
         </div>
       </section>

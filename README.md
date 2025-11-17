@@ -164,6 +164,26 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Vite** for the fast development experience
 - **React & TypeScript communities** for excellent tooling and documentation
 
+## 🚀 Deployment
+
+CourseQuest can be deployed to various platforms. See [DEPLOYMENT.md](./DEPLOYMENT.md) for detailed instructions.
+
+### Quick Deploy to Vercel (Recommended)
+
+1. Push your code to GitHub
+2. Go to [vercel.com](https://vercel.com) and import your repository
+3. Vercel will auto-detect settings and deploy
+4. Configure custom domain `www.coursequest.com` in Vercel settings
+
+### User Data Persistence
+
+- ✅ User accounts are saved in browser localStorage
+- ✅ User preferences persist across sessions
+- ✅ Works automatically - no backend required
+- ⚠️ Data is browser-specific (users must use same browser/device)
+
+For cross-device sync, consider adding a backend API in the future.
+
 ## 📞 Support
 
 For questions, issues, or contributions, please:

@@ -28,6 +28,7 @@ interface CourseDetailProps {
   username?: string;
   localReviews?: any[];
   setLocalReviews?: (reviews: any[]) => void;
+  onReviewsUpdate?: (courseId: string, reviews: any[]) => void;
 }
 
 interface SyllabusUpload {
@@ -41,19 +42,19 @@ interface SyllabusUpload {
   status: 'pending' | 'approved' | 'rejected';
 }
 
-const syllabusArchive = [
-  { id: '1', semester: 'Fall 2024', professor: 'Dr. William G.J. Halfond', downloadUrl: '#', uploadedBy: 'Student', status: 'approved' as const },
-  { id: '2', semester: 'Spring 2024', professor: 'Dr. William G.J. Halfond', downloadUrl: '#', uploadedBy: 'Student', status: 'approved' as const },
-  { id: '3', semester: 'Fall 2023', professor: 'Prof. Aaron Cote', downloadUrl: '#', uploadedBy: 'Student', status: 'approved' as const },
-];
+const syllabusArchive: any[] = [];
 
-export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCalendar, onRemoveFromCalendar, isLoggedIn = false, isFavorited = false, onToggleFavorite, onReviewSubmit, onReviewDelete, username, localReviews = [], setLocalReviews }: CourseDetailProps) {
+export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCalendar, onRemoveFromCalendar, isLoggedIn = false, isFavorited = false, onToggleFavorite, onReviewSubmit, onReviewDelete, username, localReviews = [], setLocalReviews, onReviewsUpdate }: CourseDetailProps) {
   const [newReview, setNewReview] = useState({
     difficulty: 3,
     workload: 3,
     learningGain: 3,
     comment: '',
-    isAnonymous: false
+    isAnonymous: false,
+    numExams: undefined as number | undefined,
+    numQuizzes: undefined as number | undefined,
+    numAssignments: undefined as number | undefined,
+    numPresentations: undefined as number | undefined
   });
 
   // Use localReviews from props instead of local state
@@ -212,12 +213,22 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
       learningGain: newReview.learningGain,
       overall: parseFloat(overall.toFixed(1)),
       comment: newReview.comment,
-      helpful: 0
+      helpful: 0,
+      numExams: newReview.numExams,
+      numQuizzes: newReview.numQuizzes,
+      numAssignments: newReview.numAssignments,
+      numPresentations: newReview.numPresentations
     };
 
     // Add to local reviews at the top
+    const updatedReviews = [newReviewData, ...localReviews];
     if (setLocalReviews) {
-      setLocalReviews([newReviewData, ...localReviews]);
+      setLocalReviews(updatedReviews);
+    }
+    
+    // Update all reviews by course
+    if (onReviewsUpdate) {
+      onReviewsUpdate(course.id, updatedReviews);
     }
 
     // Call parent handler
@@ -232,11 +243,66 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
       workload: 3,
       learningGain: 3,
       comment: '',
-      isAnonymous: false
+      isAnonymous: false,
+      numExams: undefined,
+      numQuizzes: undefined,
+      numAssignments: undefined,
+      numPresentations: undefined
     });
   };
 
-  const overallRating = ((course.difficulty + course.workload + course.learningGain) / 3).toFixed(1);
+  // Calculate averages from reviews for difficulty, workload, and learning gain
+  const calculateAverage = (values: number[]): number => {
+    if (values.length === 0) return 0;
+    const sum = values.reduce((acc, val) => acc + val, 0);
+    return sum / values.length;
+  };
+
+  const avgDifficulty = calculateAverage(courseReviews.map(r => r.difficulty));
+  const avgWorkload = calculateAverage(courseReviews.map(r => r.workload));
+  const avgLearningGain = calculateAverage(courseReviews.map(r => r.learningGain));
+  
+  // Use averages from reviews if available, otherwise use course defaults
+  const displayDifficulty = courseReviews.length > 0 ? avgDifficulty : course.difficulty;
+  const displayWorkload = courseReviews.length > 0 ? avgWorkload : course.workload;
+  const displayLearningGain = courseReviews.length > 0 ? avgLearningGain : course.learningGain;
+  
+  const overallRating = ((displayDifficulty + displayWorkload + displayLearningGain) / 3).toFixed(1);
+
+  // Calculate mode of values from reviews
+  const calculateMode = (values: (number | undefined)[]): number => {
+    // Filter out undefined values
+    const definedValues = values.filter((v): v is number => v !== undefined && v !== null);
+    
+    // If no values, return 0
+    if (definedValues.length === 0) {
+      return 0;
+    }
+    
+    // Count frequency of each value
+    const frequency: { [key: number]: number } = {};
+    definedValues.forEach(value => {
+      frequency[value] = (frequency[value] || 0) + 1;
+    });
+    
+    // Find the value with highest frequency
+    let maxFreq = 0;
+    let mode = 0;
+    Object.entries(frequency).forEach(([value, freq]) => {
+      if (freq > maxFreq) {
+        maxFreq = freq;
+        mode = parseInt(value);
+      }
+    });
+    
+    return mode;
+  };
+
+  // Calculate mode values from all reviews
+  const modeExams = calculateMode(courseReviews.map(r => r.numExams));
+  const modeQuizzes = calculateMode(courseReviews.map(r => r.numQuizzes));
+  const modeAssignments = calculateMode(courseReviews.map(r => r.numAssignments));
+  const modePresentations = calculateMode(courseReviews.map(r => r.numPresentations));
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -258,11 +324,30 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
             </div>
             <h2 className="text-xl text-muted-foreground mb-2">{course.title}</h2>
             <p className="text-muted-foreground">
-              {course.professor} • {course.department}
+              {course.professors && course.professors.length > 0 
+                ? (course.professors.length > 1 
+                    ? `${course.professors.join(', ')} • ${course.department}`
+                    : `${course.professors[0]} • ${course.department}`)
+                : `${course.professor} • ${course.department}`}
             </p>
-            <p className="text-sm text-muted-foreground mt-1">
-              {course.schedule}
-            </p>
+            {course.schedules && course.schedules.length > 0 ? (
+              <div className="text-sm text-muted-foreground mt-1">
+                {course.schedules.length > 1 ? (
+                  <div>
+                    <p className="font-semibold mb-1">Available Timeslots:</p>
+                    {course.schedules.map((schedule, idx) => (
+                      <p key={idx} className="ml-2">• {schedule}</p>
+                    ))}
+                  </div>
+                ) : (
+                  <p>{course.schedules[0]}</p>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground mt-1">
+                {course.schedule}
+              </p>
+            )}
           </div>
           
           <div className="flex gap-3">
@@ -325,32 +410,32 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
               </span>
             </div>
             <p className="text-sm">Overall Score</p>
-            <p className="text-xs text-muted-foreground">{course.reviewCount} reviews</p>
+            <p className="text-xs text-muted-foreground">{courseReviews.length} reviews</p>
           </div>
           
           <div className="text-center">
-            <div className="text-xl mb-1">{course.difficulty.toFixed(1)}/5</div>
+            <div className="text-xl mb-1">{displayDifficulty.toFixed(1)}/5</div>
             <p className="text-sm">Difficulty</p>
-            <Progress value={course.difficulty * 20} className="h-2 mt-1" />
+            <Progress value={displayDifficulty * 20} className="h-2 mt-1" />
           </div>
           
           <div className="text-center">
-            <div className="text-xl mb-1">{course.workload.toFixed(1)}/5</div>
+            <div className="text-xl mb-1">{displayWorkload.toFixed(1)}/5</div>
             <p className="text-sm">Workload</p>
-            <Progress value={course.workload * 20} className="h-2 mt-1" />
+            <Progress value={displayWorkload * 20} className="h-2 mt-1" />
           </div>
           
           <div className="text-center">
-            <div className="text-xl mb-1">{course.learningGain.toFixed(1)}/5</div>
+            <div className="text-xl mb-1">{displayLearningGain.toFixed(1)}/5</div>
             <p className="text-sm">Learning Gain</p>
-            <Progress value={course.learningGain * 20} className="h-2 mt-1" />
+            <Progress value={displayLearningGain * 20} className="h-2 mt-1" />
           </div>
         </div>
       </div>
 
       {/* Tabs Content */}
       <Tabs defaultValue="overview" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4 bg-gray-100">
+        <TabsList className="grid w-full grid-cols-3 bg-gray-100">
           <TabsTrigger 
             value="overview"
             className="data-[state=active]:bg-white data-[state=active]:text-red-900 data-[state=active]:font-semibold data-[state=active]:border-b-2 data-[state=active]:border-red-900"
@@ -380,16 +465,6 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
             }}
           >
             Syllabus Archive
-          </TabsTrigger>
-          <TabsTrigger 
-            value="add-review"
-            className="data-[state=active]:bg-white data-[state=active]:text-red-900 data-[state=active]:font-semibold data-[state=active]:border-b-2 data-[state=active]:border-red-900"
-            style={{ 
-              color: '#6B7280',
-              transition: 'all 0.2s ease-in-out'
-            }}
-          >
-            Write Review
           </TabsTrigger>
         </TabsList>
 
@@ -425,27 +500,22 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
                   </div>
                 )}
 
-                <div>
-                  <h4 className="mb-2">Evaluation Methods</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {course.evaluationMethods.map((method) => (
-                      <Badge key={method} variant="outline" className="bg-gray-100 text-gray-700 border-gray-300">{method}</Badge>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-3 gap-4 pt-4">
+                <div className="grid grid-cols-4 gap-4 pt-4">
                   <div>
                     <p className="text-sm text-muted-foreground">Exams</p>
-                    <p className="text-xl">{course.numExams}</p>
+                    <p className="text-xl">{modeExams}</p>
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Quizzes</p>
-                    <p className="text-xl">{course.numQuizzes}</p>
+                    <p className="text-xl">{modeQuizzes}</p>
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Assignments</p>
-                    <p className="text-xl">{course.numAssignments}</p>
+                    <p className="text-xl">{modeAssignments}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Presentations</p>
+                    <p className="text-xl">{modePresentations}</p>
                   </div>
                 </div>
               </CardContent>
@@ -455,6 +525,211 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
 
         <TabsContent value="reviews">
           <div className="space-y-6 p-6 bg-gray-50 rounded-lg">
+            {/* Write Review Form at the top */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Write a Review</CardTitle>
+                <CardDescription>
+                  Help future students by sharing your experience with this course
+                  {!isLoggedIn && ' (Login required)'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {!isLoggedIn && (
+                  <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800">
+                    <AlertCircle className="h-4 w-4" />
+                    <span className="text-sm">Please login to post reviews</span>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div>
+                    <Label className="block text-sm mb-3 font-semibold" style={{ color: '#990000' }}>
+                      Difficulty (1-5)
+                    </Label>
+                    <div className="space-y-3">
+                      <div className="px-2">
+                        <Slider
+                          value={[newReview.difficulty]}
+                          onValueChange={([value]) => setNewReview({...newReview, difficulty: value})}
+                          max={5}
+                          min={1}
+                          step={1}
+                          className="w-full h-8"
+                          disabled={!isLoggedIn}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between text-sm text-muted-foreground">
+                        <span>Easy</span>
+                        <span className="font-medium text-primary">{newReview.difficulty}</span>
+                        <span>Hard</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label className="block text-sm mb-3 font-semibold" style={{ color: '#990000' }}>
+                      Workload (1-5)
+                    </Label>
+                    <div className="space-y-3">
+                      <div className="px-2">
+                        <Slider
+                          value={[newReview.workload]}
+                          onValueChange={([value]) => setNewReview({...newReview, workload: value})}
+                          max={5}
+                          min={1}
+                          step={1}
+                          className="w-full h-8"
+                          disabled={!isLoggedIn}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between text-sm text-muted-foreground">
+                        <span>Light</span>
+                        <span className="font-medium text-primary">{newReview.workload}</span>
+                        <span>Heavy</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label className="block text-sm mb-3 font-semibold" style={{ color: '#990000' }}>
+                      Learning Gain (1-5)
+                    </Label>
+                    <div className="space-y-3">
+                      <div className="px-2">
+                        <Slider
+                          value={[newReview.learningGain]}
+                          onValueChange={([value]) => setNewReview({...newReview, learningGain: value})}
+                          max={5}
+                          min={1}
+                          step={1}
+                          className="w-full h-8"
+                          disabled={!isLoggedIn}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between text-sm text-muted-foreground">
+                        <span>Low</span>
+                        <span className="font-medium text-primary">{newReview.learningGain}</span>
+                        <span>High</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm mb-2">Your Review</label>
+                  <Textarea
+                    placeholder="Share your experience with this course. What did you like? What was challenging? Any tips for future students?"
+                    value={newReview.comment}
+                    onChange={(e) => setNewReview({...newReview, comment: e.target.value})}
+                    className="min-h-32"
+                    disabled={!isLoggedIn}
+                  />
+                </div>
+
+                <div>
+                  <Label className="block text-sm mb-3 font-semibold" style={{ color: '#990000' }}>
+                    Course Structure (Optional)
+                  </Label>
+                  <p className="text-xs text-muted-foreground mb-4">
+                    Help other students by sharing how many exams, quizzes, assignments, and presentations this course had
+                  </p>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div>
+                      <Label htmlFor="numExams" className="text-xs text-muted-foreground">Exams</Label>
+                      <Input
+                        id="numExams"
+                        type="number"
+                        min="0"
+                        placeholder="0"
+                        value={newReview.numExams === undefined ? '' : newReview.numExams}
+                        onChange={(e) => {
+                          const value = e.target.value === '' ? undefined : parseInt(e.target.value);
+                          setNewReview({...newReview, numExams: value});
+                        }}
+                        disabled={!isLoggedIn}
+                        className="mt-1"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="numQuizzes" className="text-xs text-muted-foreground">Quizzes</Label>
+                      <Input
+                        id="numQuizzes"
+                        type="number"
+                        min="0"
+                        placeholder="0"
+                        value={newReview.numQuizzes === undefined ? '' : newReview.numQuizzes}
+                        onChange={(e) => {
+                          const value = e.target.value === '' ? undefined : parseInt(e.target.value);
+                          setNewReview({...newReview, numQuizzes: value});
+                        }}
+                        disabled={!isLoggedIn}
+                        className="mt-1"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="numAssignments" className="text-xs text-muted-foreground">Assignments</Label>
+                      <Input
+                        id="numAssignments"
+                        type="number"
+                        min="0"
+                        placeholder="0"
+                        value={newReview.numAssignments === undefined ? '' : newReview.numAssignments}
+                        onChange={(e) => {
+                          const value = e.target.value === '' ? undefined : parseInt(e.target.value);
+                          setNewReview({...newReview, numAssignments: value});
+                        }}
+                        disabled={!isLoggedIn}
+                        className="mt-1"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="numPresentations" className="text-xs text-muted-foreground">Presentations</Label>
+                      <Input
+                        id="numPresentations"
+                        type="number"
+                        min="0"
+                        placeholder="0"
+                        value={newReview.numPresentations === undefined ? '' : newReview.numPresentations}
+                        onChange={(e) => {
+                          const value = e.target.value === '' ? undefined : parseInt(e.target.value);
+                          setNewReview({...newReview, numPresentations: value});
+                        }}
+                        disabled={!isLoggedIn}
+                        className="mt-1"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="anonymous"
+                    checked={newReview.isAnonymous}
+                    onCheckedChange={(checked) => setNewReview({...newReview, isAnonymous: checked as boolean})}
+                    disabled={!isLoggedIn}
+                  />
+                  <label
+                    htmlFor="anonymous"
+                    className="text-sm leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                  >
+                    Post anonymously (your identity will be hidden but verified as a USC student)
+                  </label>
+                </div>
+
+                <Button 
+                  onClick={handleSubmitReview}
+                  disabled={!isLoggedIn}
+                  style={{ backgroundColor: '#990000', color: 'white' }}
+                  className="hover:opacity-90"
+                >
+                  <MessageCircle className="h-4 w-4 mr-2" />
+                  Submit Review
+                </Button>
+              </CardContent>
+            </Card>
+
+            {/* Reviews List */}
             {courseReviews.length === 0 ? (
               <Card>
                 <CardContent className="p-12 text-center">
@@ -531,6 +806,62 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
 
         <TabsContent value="syllabus">
           <div className="space-y-6 p-6 bg-gray-50 rounded-lg">
+            {/* Archive Section */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Syllabus Archive</CardTitle>
+                <CardDescription>
+                  Download syllabi from previous semesters to understand course expectations
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {allSyllabi.length === 0 ? (
+                  <div className="text-center py-8">
+                    <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                    <p className="text-muted-foreground">No syllabi available yet. Upload a syllabus to help other students!</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {allSyllabi.map((syllabus, index) => (
+                      <div key={syllabus.id || index} className="flex items-center justify-between p-3 border rounded-lg">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium">
+                              {syllabus.semester} {syllabus.year || ''}
+                            </p>
+                            {syllabus.status === 'pending' && (
+                              <Badge variant="outline" className="text-yellow-600 border-yellow-600">
+                                Pending Review
+                              </Badge>
+                            )}
+                            {syllabus.status === 'approved' && (
+                              <Badge variant="outline" className="text-green-600 border-green-600">
+                                Verified
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-sm text-muted-foreground">{syllabus.professor}</p>
+                          {syllabus.uploadedBy && (
+                            <p className="text-xs text-muted-foreground">
+                              Uploaded by {syllabus.uploadedBy} {syllabus.uploadDate && `on ${syllabus.uploadDate}`}
+                            </p>
+                          )}
+                        </div>
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          disabled={syllabus.status === 'pending'}
+                        >
+                          <Download className="h-4 w-4 mr-2" />
+                          {syllabus.status === 'pending' ? 'Reviewing...' : 'Download PDF'}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
             {/* Upload Section */}
             <Card>
               <CardHeader>
@@ -658,187 +989,6 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
                 </Button>
               </CardContent>
             </Card>
-
-            {/* Archive Section */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Syllabus Archive</CardTitle>
-                <CardDescription>
-                  Download syllabi from previous semesters to understand course expectations
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {allSyllabi.map((syllabus, index) => (
-                    <div key={syllabus.id || index} className="flex items-center justify-between p-3 border rounded-lg">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <p className="font-medium">
-                            {syllabus.semester} {syllabus.year || ''}
-                          </p>
-                          {syllabus.status === 'pending' && (
-                            <Badge variant="outline" className="text-yellow-600 border-yellow-600">
-                              Pending Review
-                            </Badge>
-                          )}
-                          {syllabus.status === 'approved' && (
-                            <Badge variant="outline" className="text-green-600 border-green-600">
-                              Verified
-                            </Badge>
-                          )}
-                        </div>
-                        <p className="text-sm text-muted-foreground">{syllabus.professor}</p>
-                        {syllabus.uploadedBy && (
-                          <p className="text-xs text-muted-foreground">
-                            Uploaded by {syllabus.uploadedBy} {syllabus.uploadDate && `on ${syllabus.uploadDate}`}
-                          </p>
-                        )}
-                      </div>
-                      <Button 
-                        variant="outline" 
-                        size="sm"
-                        disabled={syllabus.status === 'pending'}
-                      >
-                        <Download className="h-4 w-4 mr-2" />
-                        {syllabus.status === 'pending' ? 'Reviewing...' : 'Download PDF'}
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="add-review">
-          <div className="p-6 bg-gray-50 rounded-lg">
-            <Card>
-            <CardHeader>
-              <CardTitle>Write a Review</CardTitle>
-              <CardDescription>
-                Help future students by sharing your experience with this course
-                {!isLoggedIn && ' (Login required)'}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {!isLoggedIn && (
-                <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800">
-                  <AlertCircle className="h-4 w-4" />
-                  <span className="text-sm">Please login to post reviews</span>
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div>
-                  <Label className="block text-sm mb-3 font-semibold" style={{ color: '#990000' }}>
-                    Difficulty (1-5)
-                  </Label>
-                  <div className="space-y-3">
-                    <div className="px-2">
-                      <Slider
-                        value={[newReview.difficulty]}
-                        onValueChange={([value]) => setNewReview({...newReview, difficulty: value})}
-                        max={5}
-                        min={1}
-                        step={1}
-                        className="w-full h-8"
-                        disabled={!isLoggedIn}
-                      />
-                    </div>
-                    <div className="flex items-center justify-between text-sm text-muted-foreground">
-                      <span>Easy</span>
-                      <span className="font-medium text-primary">{newReview.difficulty}</span>
-                      <span>Hard</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <Label className="block text-sm mb-3 font-semibold" style={{ color: '#990000' }}>
-                    Workload (1-5)
-                  </Label>
-                  <div className="space-y-3">
-                    <div className="px-2">
-                      <Slider
-                        value={[newReview.workload]}
-                        onValueChange={([value]) => setNewReview({...newReview, workload: value})}
-                        max={5}
-                        min={1}
-                        step={1}
-                        className="w-full h-8"
-                        disabled={!isLoggedIn}
-                      />
-                    </div>
-                    <div className="flex items-center justify-between text-sm text-muted-foreground">
-                      <span>Light</span>
-                      <span className="font-medium text-primary">{newReview.workload}</span>
-                      <span>Heavy</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <Label className="block text-sm mb-3 font-semibold" style={{ color: '#990000' }}>
-                    Learning Gain (1-5)
-                  </Label>
-                  <div className="space-y-3">
-                    <div className="px-2">
-                      <Slider
-                        value={[newReview.learningGain]}
-                        onValueChange={([value]) => setNewReview({...newReview, learningGain: value})}
-                        max={5}
-                        min={1}
-                        step={1}
-                        className="w-full h-8"
-                        disabled={!isLoggedIn}
-                      />
-                    </div>
-                    <div className="flex items-center justify-between text-sm text-muted-foreground">
-                      <span>Low</span>
-                      <span className="font-medium text-primary">{newReview.learningGain}</span>
-                      <span>High</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm mb-2">Your Review</label>
-                <Textarea
-                  placeholder="Share your experience with this course. What did you like? What was challenging? Any tips for future students?"
-                  value={newReview.comment}
-                  onChange={(e) => setNewReview({...newReview, comment: e.target.value})}
-                  className="min-h-32"
-                  disabled={!isLoggedIn}
-                />
-              </div>
-
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="anonymous"
-                  checked={newReview.isAnonymous}
-                  onCheckedChange={(checked) => setNewReview({...newReview, isAnonymous: checked as boolean})}
-                  disabled={!isLoggedIn}
-                />
-                <label
-                  htmlFor="anonymous"
-                  className="text-sm leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
-                >
-                  Post anonymously (your identity will be hidden but verified as a USC student)
-                </label>
-              </div>
-
-              <Button 
-                onClick={handleSubmitReview}
-                disabled={!isLoggedIn}
-                style={{ backgroundColor: '#990000', color: 'white' }}
-                className="hover:opacity-90"
-              >
-                <MessageCircle className="h-4 w-4 mr-2" />
-                Submit Review
-              </Button>
-            </CardContent>
-          </Card>
           </div>
         </TabsContent>
       </Tabs>

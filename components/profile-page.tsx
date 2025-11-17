@@ -87,7 +87,9 @@ export function ProfilePage({
     (courseSearchQuery === '' || 
      course.code.toLowerCase().includes(courseSearchQuery.toLowerCase()) ||
      course.title.toLowerCase().includes(courseSearchQuery.toLowerCase()) ||
-     course.professor.toLowerCase().includes(courseSearchQuery.toLowerCase()))
+     (course.professors && course.professors.length > 0 
+       ? course.professors.some(p => p.toLowerCase().includes(courseSearchQuery.toLowerCase()))
+       : course.professor.toLowerCase().includes(courseSearchQuery.toLowerCase())))
   );
 
   return (
@@ -229,7 +231,11 @@ export function ProfilePage({
                         <span className="text-sm text-muted-foreground">{course.title}</span>
                       </div>
                       <p className="text-sm text-muted-foreground">
-                        {course.professor} • {course.credits} credits
+                        {course.professors && course.professors.length > 0 
+                          ? (course.professors.length > 1 
+                              ? `${course.professors.join(', ')} • ${course.credits} credits`
+                              : `${course.professors[0]} • ${course.credits} credits`)
+                          : `${course.professor} • ${course.credits} credits`}
                       </p>
                     </div>
                     <Badge variant="secondary">
@@ -306,7 +312,13 @@ export function ProfilePage({
                           <Badge variant="secondary" className="text-xs">{course.credits} credits</Badge>
                         </div>
                         <p className="text-sm text-muted-foreground mb-1">{course.title}</p>
-                        <p className="text-xs text-muted-foreground">Prof. {course.professor}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {course.professors && course.professors.length > 0 
+                            ? (course.professors.length > 1 
+                                ? `Profs. ${course.professors.join(', ')}`
+                                : `Prof. ${course.professors[0]}`)
+                            : `Prof. ${course.professor}`}
+                        </p>
                       </div>
                       <Button 
                         size="sm" 
@@ -359,7 +371,13 @@ export function ProfilePage({
                         >
                           <td className="py-3 font-medium">{item.course.code}</td>
                           <td className="py-3 text-sm text-muted-foreground">{item.course.title}</td>
-                          <td className="py-3 text-sm text-muted-foreground">{item.course.professor}</td>
+                          <td className="py-3 text-sm text-muted-foreground">
+                            {item.course.professors && item.course.professors.length > 0 
+                              ? (item.course.professors.length > 1 
+                                  ? item.course.professors.join(', ')
+                                  : item.course.professors[0])
+                              : item.course.professor}
+                          </td>
                           <td className="py-3 text-center font-medium">{item.course.credits}</td>
                           <td className="py-3 text-center">
                             {item.hasReview ? (

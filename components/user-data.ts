@@ -7,6 +7,17 @@ export interface User {
   createdAt: string;
 }
 
+export interface UserPreferences {
+  calendarCourses: any[];
+  favoritedCourses: any[];
+  courseHistory: Array<{ course: any; hasReview: boolean; reviewData?: any }>;
+  userMajor: string;
+  targetCredits: number;
+  courseSelectedSchedules: Record<string, string>;
+  allReviewsByCourse: Record<string, any[]>;
+  userReviews: Record<string, any>;
+}
+
 // Mock database using localStorage
 const USERS_KEY = 'coursequest_users';
 const CURRENT_USER_KEY = 'coursequest_current_user';
@@ -102,7 +113,27 @@ export const userDatabase = {
 
   // Validate USC email
   isValidUSCEmail: (email: string): boolean => {
-    return email.toLowerCase().endsWith('@usc.edu');
+    const emailLower = email.toLowerCase();
+    
+    // Must end with @usc.edu
+    if (!emailLower.endsWith('@usc.edu')) {
+      return false;
+    }
+    
+    // Extract the part before @
+    const localPart = emailLower.split('@')[0];
+    
+    // Must be at least 5 characters long
+    if (localPart.length < 5) {
+      return false;
+    }
+    
+    // Must contain only English letters or digits (no special symbols)
+    if (!/^[a-z0-9]+$/.test(localPart)) {
+      return false;
+    }
+    
+    return true;
   },
 
   // Validate password strength
@@ -122,5 +153,38 @@ export const userDatabase = {
       return { isValid: false, message: 'Username can only contain letters, numbers, and underscores' };
     }
     return { isValid: true, message: '' };
+  },
+
+  // Save user preferences
+  saveUserPreferences: (userId: string, preferences: UserPreferences): void => {
+    try {
+      const key = `coursequest_preferences_${userId}`;
+      localStorage.setItem(key, JSON.stringify(preferences));
+    } catch (error) {
+      console.error('Error saving user preferences:', error);
+    }
+  },
+
+  // Load user preferences
+  loadUserPreferences: (userId: string): UserPreferences | null => {
+    try {
+      const key = `coursequest_preferences_${userId}`;
+      const preferences = localStorage.getItem(key);
+      return preferences ? JSON.parse(preferences) : null;
+    } catch (error) {
+      console.error('Error loading user preferences:', error);
+      return null;
+    }
+  },
+
+  // Clear user preferences
+  clearUserPreferences: (userId: string): void => {
+    try {
+      const key = `coursequest_preferences_${userId}`;
+      localStorage.removeItem(key);
+    } catch (error) {
+      console.error('Error clearing user preferences:', error);
+    }
   }
 };
+

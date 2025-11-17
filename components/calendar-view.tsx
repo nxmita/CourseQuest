@@ -14,20 +14,23 @@ import { Course, mockCourses } from './course-data';
 interface CalendarViewProps {
   calendarCourses?: Course[];
   onRemoveFromCalendar?: (courseId: string) => void;
-  onAddToCalendar?: (course: Course) => boolean;
+  onAddToCalendar?: (course: Course, selectedSchedule?: string) => boolean;
   isLoggedIn?: boolean;
   favoritedCourses?: Course[];
   onToggleFavorite?: (course: Course) => void;
+  onCourseSelect?: (course: Course) => void;
+  courseSelectedSchedules?: Record<string, string>; // courseId -> selected schedule string
 }
 
 const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 const timeSlots = [
   '8:00 AM', '9:00 AM', '10:00 AM', '11:00 AM', '12:00 PM',
-  '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM', '5:00 PM', '6:00 PM'
+  '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM', '5:00 PM', '6:00 PM',
+  '7:00 PM', '8:00 PM', '9:00 PM', '10:00 PM', '11:00 PM'
 ];
 
 const parseSchedule = (schedule: string) => {
-  if (!schedule || typeof schedule !== 'string') {
+  if (!schedule || typeof schedule !== 'string' || schedule === 'TBA' || schedule.includes('TBA')) {
     return [];
   }
   
@@ -35,9 +38,10 @@ const parseSchedule = (schedule: string) => {
   
   const normalizeTime = (timeStr: string) => {
     if (!timeStr) return '';
+    // Normalize to format like "10:00 AM" (hour without leading zero, space before AM/PM)
     return timeStr.replace(/(\d{1,2}):(\d{2})\s?(AM|PM)/i, (match, hour, minute, period) => {
-      const formattedHour = hour.padStart(1, '0');
-      return `${formattedHour}:${minute} ${period.toUpperCase()}`;
+      const hourNum = parseInt(hour, 10);
+      return `${hourNum}:${minute} ${period.toUpperCase()}`;
     });
   };
 
@@ -55,45 +59,103 @@ const parseSchedule = (schedule: string) => {
     endTime = timeMatches && timeMatches[1] ? normalizeTime(timeMatches[1]) : '';
   }
   
+  // Handle day patterns
+  const dayMap: { [key: string]: string[] } = {
+    'MWF': ['Monday', 'Wednesday', 'Friday'],
+    'TTh': ['Tuesday', 'Thursday'],
+    'TuTh': ['Tuesday', 'Thursday'],
+    'MW': ['Monday', 'Wednesday'],
+    'M': ['Monday'],
+    'T': ['Tuesday'],
+    'W': ['Wednesday'],
+    'Th': ['Thursday'],
+    'F': ['Friday']
+  };
+  
+  // Check for combined patterns first (longer patterns first)
   if (schedule.includes('MWF')) {
-    ['Monday', 'Wednesday', 'Friday'].forEach(day => {
+    dayMap['MWF'].forEach(day => {
       scheduleSlots.push({ day, startTime, endTime });
     });
   } else if (schedule.includes('TTh') || schedule.includes('TuTh')) {
-    ['Tuesday', 'Thursday'].forEach(day => {
+    dayMap['TTh'].forEach(day => {
       scheduleSlots.push({ day, startTime, endTime });
     });
   } else if (schedule.includes('MW')) {
-    ['Monday', 'Wednesday'].forEach(day => {
+    dayMap['MW'].forEach(day => {
       scheduleSlots.push({ day, startTime, endTime });
     });
+  } else {
+    // Check for individual days
+    if (schedule.includes(' M ') || schedule.startsWith('M ') || schedule.includes(' M')) {
+      dayMap['M'].forEach(day => {
+        scheduleSlots.push({ day, startTime, endTime });
+      });
+    }
+    if (schedule.includes(' T ') || schedule.startsWith('T ') || (schedule.includes(' T') && !schedule.includes('Th'))) {
+      dayMap['T'].forEach(day => {
+        scheduleSlots.push({ day, startTime, endTime });
+      });
+    }
+    if (schedule.includes(' W ') || schedule.startsWith('W ') || schedule.includes(' W')) {
+      dayMap['W'].forEach(day => {
+        scheduleSlots.push({ day, startTime, endTime });
+      });
+    }
+    if (schedule.includes('Th ') || schedule.includes(' Th')) {
+      dayMap['Th'].forEach(day => {
+        scheduleSlots.push({ day, startTime, endTime });
+      });
+    }
+    if (schedule.includes(' F ') || schedule.startsWith('F ') || schedule.includes(' F')) {
+      dayMap['F'].forEach(day => {
+        scheduleSlots.push({ day, startTime, endTime });
+      });
+    }
   }
   
   return scheduleSlots;
 };
 
-const convertCoursesToTimeSlots = (courses: Course[]) => {
+const convertCoursesToTimeSlots = (courses: Course[], courseSelectedSchedules?: Record<string, string>) => {
   const timeSlots: any[] = [];
   
   courses.forEach(course => {
     try {
-      const slots = parseSchedule(course.schedule || '');
-      slots.forEach(slot => {
-        if (slot.day && slot.startTime) {
-          timeSlots.push({
-            id: `${course.id}-${slot.day}-${slot.startTime}`,
-            day: slot.day,
-            startTime: slot.startTime,
-            endTime: slot.endTime,
-            course: {
-              id: course.id,
-              code: course.code || 'Unknown',
-              title: course.title || 'Unknown Course',
-              professor: course.professor || 'TBD',
-              location: 'TBD'
-            }
-          });
-        }
+      // If a specific schedule was selected for this course, only use that schedule
+      // Otherwise, use all schedules (for backward compatibility)
+      let schedulesToParse: string[] = [];
+      
+      if (courseSelectedSchedules && courseSelectedSchedules[course.id]) {
+        // Only use the selected schedule for this course
+        schedulesToParse = [courseSelectedSchedules[course.id]];
+      } else {
+        // Use schedules array if available, otherwise fall back to schedule string
+        schedulesToParse = (course.schedules && course.schedules.length > 0) 
+          ? course.schedules 
+          : (course.schedule ? [course.schedule] : []);
+      }
+      
+      schedulesToParse.forEach(scheduleStr => {
+        const slots = parseSchedule(scheduleStr);
+        slots.forEach(slot => {
+          if (slot.day && slot.startTime) {
+            timeSlots.push({
+              id: `${course.id}-${slot.day}-${slot.startTime}`,
+              day: slot.day,
+              startTime: slot.startTime,
+              endTime: slot.endTime,
+              course: {
+                id: course.id,
+                code: course.code || 'Unknown',
+                title: course.title || 'Unknown Course',
+                professor: course.professor || 'TBD',
+                location: 'TBD',
+                fullCourse: course // Store full course object for selection
+              }
+            });
+          }
+        });
       });
     } catch (error) {
       console.warn('Error parsing schedule for course:', course.code, error);
@@ -103,7 +165,7 @@ const convertCoursesToTimeSlots = (courses: Course[]) => {
   return timeSlots;
 };
 
-export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAddToCalendar, isLoggedIn = false, favoritedCourses = [], onToggleFavorite }: CalendarViewProps) {
+export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAddToCalendar, isLoggedIn = false, favoritedCourses = [], onToggleFavorite, onCourseSelect, courseSelectedSchedules = {} }: CalendarViewProps) {
   const [selectedSlot, setSelectedSlot] = useState<{ day: string; time: string } | null>(null);
   const [targetCredits, setTargetCredits] = useState(0);
   const [isEditingTarget, setIsEditingTarget] = useState(false);
@@ -118,12 +180,12 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
 
   const userSchedule = useMemo(() => {
     try {
-      return convertCoursesToTimeSlots(calendarCourses || []);
+      return convertCoursesToTimeSlots(calendarCourses || [], courseSelectedSchedules);
     } catch (error) {
       console.error('Error converting courses to time slots:', error);
       return [];
     }
-  }, [calendarCourses]);
+  }, [calendarCourses, courseSelectedSchedules]);
 
   const enrolledCredits = useMemo(() => {
     return calendarCourses.reduce((sum, course) => sum + course.credits, 0);
@@ -171,19 +233,39 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
     }
   };
 
+  const normalizeTimeForComparison = (timeStr: string) => {
+    if (!timeStr) return '';
+    // Normalize time string for comparison (remove leading zeros, ensure consistent format)
+    return timeStr.replace(/(\d{1,2}):(\d{2})\s?(AM|PM)/i, (match, hour, minute, period) => {
+      const hourNum = parseInt(hour, 10);
+      return `${hourNum}:${minute} ${period.toUpperCase()}`;
+    });
+  };
+
   const isSlotOccupied = (day: string, time: string) => {
+    const normalizedTime = normalizeTimeForComparison(time);
     return userSchedule.some(slot => 
-      slot.day === day && slot.startTime === time
+      slot.day === day && normalizeTimeForComparison(slot.startTime) === normalizedTime
     );
   };
 
   const getSlotCourse = (day: string, time: string) => {
+    const normalizedTime = normalizeTimeForComparison(time);
     return userSchedule.find(slot => 
-      slot.day === day && slot.startTime === time
+      slot.day === day && normalizeTimeForComparison(slot.startTime) === normalizedTime
     );
   };
 
   const handleSlotClick = (day: string, time: string) => {
+    const slotCourse = getSlotCourse(day, time);
+    
+    // If slot is occupied, open course detail
+    if (slotCourse && slotCourse.course.fullCourse && onCourseSelect) {
+      onCourseSelect(slotCourse.course.fullCourse);
+      return;
+    }
+    
+    // Otherwise, handle selection for filtering
     if (isSlotOccupied(day, time)) {
       return; // Don't select occupied slots
     }
@@ -245,18 +327,40 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
 
   const hasScheduleConflict = (course: Course) => {
     try {
-      if (!calendarCourses || calendarCourses.length === 0) {
+      if (!calendarCourses || calendarCourses.length === 0 || !selectedSlot) {
         return false;
       }
 
-      const courseSlots = parseSchedule(course.schedule || '');
+      // Get the schedule that matches the selected time slot for the new course
+      const matchingSchedule = findMatchingSchedule(course, selectedSlot.day, selectedSlot.time);
+      if (!matchingSchedule) {
+        return false; // No matching schedule found, no conflict
+      }
+      
+      const newCourseSlots = parseSchedule(matchingSchedule);
       
       return calendarCourses.some(existingCourse => {
-        if (!existingCourse || !existingCourse.schedule) return false;
+        if (!existingCourse) return false;
         
-        const existingSlots = parseSchedule(existingCourse.schedule);
+        // Get the selected schedule for existing course, or all schedules if none selected
+        let existingCourseSchedules: string[] = [];
+        if (courseSelectedSchedules[existingCourse.id]) {
+          // Only check against the selected schedule for this course
+          existingCourseSchedules = [courseSelectedSchedules[existingCourse.id]];
+        } else {
+          // Fall back to all schedules (for backward compatibility)
+          existingCourseSchedules = (existingCourse.schedules && existingCourse.schedules.length > 0) 
+            ? existingCourse.schedules 
+            : (existingCourse.schedule ? [existingCourse.schedule] : []);
+        }
         
-        return courseSlots.some(newSlot => {
+        const existingSlots: any[] = [];
+        existingCourseSchedules.forEach(scheduleStr => {
+          const slots = parseSchedule(scheduleStr);
+          existingSlots.push(...slots);
+        });
+        
+        return newCourseSlots.some(newSlot => {
           if (!newSlot.day || !newSlot.startTime) return false;
           
           return existingSlots.some(existingSlot => {
@@ -282,10 +386,46 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
 
   const courseMatchesSlot = (course: Course, day: string, time: string) => {
     try {
-      const courseSlots = parseSchedule(course.schedule || '');
-      return courseSlots.some(slot => slot.day === day && slot.startTime === time);
+      // Check all schedules for this course
+      const schedulesToCheck = (course.schedules && course.schedules.length > 0) 
+        ? course.schedules 
+        : (course.schedule ? [course.schedule] : []);
+      
+      return schedulesToCheck.some(scheduleStr => {
+        const courseSlots = parseSchedule(scheduleStr);
+        return courseSlots.some(slot => {
+          const normalizedSlotTime = normalizeTimeForComparison(slot.startTime);
+          const normalizedSelectedTime = normalizeTimeForComparison(time);
+          return slot.day === day && normalizedSlotTime === normalizedSelectedTime;
+        });
+      });
     } catch (error) {
       return false;
+    }
+  };
+
+  // Find which schedule line matches the selected day and time
+  const findMatchingSchedule = (course: Course, day: string, time: string): string | null => {
+    try {
+      const schedulesToCheck = (course.schedules && course.schedules.length > 0) 
+        ? course.schedules 
+        : (course.schedule ? [course.schedule] : []);
+      
+      const normalizedSelectedTime = normalizeTimeForComparison(time);
+      
+      for (const scheduleStr of schedulesToCheck) {
+        const courseSlots = parseSchedule(scheduleStr);
+        const matches = courseSlots.some(slot => {
+          const normalizedSlotTime = normalizeTimeForComparison(slot.startTime);
+          return slot.day === day && normalizedSlotTime === normalizedSelectedTime;
+        });
+        if (matches) {
+          return scheduleStr;
+        }
+      }
+      return null;
+    } catch (error) {
+      return null;
     }
   };
 
@@ -458,9 +598,6 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
                             {slotCourse?.course && (
                               <div className="text-xs relative group">
                                 <div className="font-medium text-blue-900">{slotCourse.course.code}</div>
-                                <div className="text-blue-700 truncate text-[10px]">
-                                  {slotCourse.course.professor.split(' ').slice(-1)[0]}
-                                </div>
                                 {onRemoveFromCalendar && (
                                   <button
                                     onClick={(e) => {
@@ -707,13 +844,16 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
                         size="sm" 
                         className="w-full text-xs h-7"
                         variant={course.conflicts ? "outline" : "default"}
-                        disabled={course.conflicts}
-                        style={!course.conflicts ? { backgroundColor: '#990000', color: 'white' } : {}}
+                        disabled={course.conflicts || !selectedSlot}
+                        style={!course.conflicts && selectedSlot ? { backgroundColor: '#990000', color: 'white' } : {}}
                         onClick={() => {
-                          if (onAddToCalendar && !course.conflicts) {
-                            const wasAdded = onAddToCalendar(course);
+                          if (onAddToCalendar && !course.conflicts && selectedSlot) {
+                            // Find which schedule line matches the selected time slot
+                            const matchingSchedule = findMatchingSchedule(course, selectedSlot.day, selectedSlot.time);
+                            const wasAdded = onAddToCalendar(course, matchingSchedule || undefined);
                             if (wasAdded) {
-                              toast.success(`Added ${course.code} to your calendar!`);
+                              const scheduleDisplay = matchingSchedule || course.schedule;
+                              toast.success(`Added ${course.code} (${scheduleDisplay}) to your calendar!`);
                               setSelectedSlot(null);
                             } else {
                               toast.info(`${course.code} is already in your calendar`);
@@ -721,7 +861,7 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
                           }
                         }}
                       >
-                        {course.conflicts ? 'Time Conflict' : <><Plus className="h-3 w-3 mr-1" />Add to Schedule</>}
+                        {course.conflicts ? 'Time Conflict' : !selectedSlot ? 'Select a time slot first' : <><Plus className="h-3 w-3 mr-1" />Add to Schedule</>}
                       </Button>
                     </div>
                   ))

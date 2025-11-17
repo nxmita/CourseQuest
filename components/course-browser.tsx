@@ -18,9 +18,10 @@ interface CourseBrowserProps {
   onRemoveFromCalendar?: (courseId: string) => void;
   favoritedCourses?: Course[];
   onToggleFavorite?: (course: Course) => void;
+  allReviewsByCourse?: Record<string, any[]>;
 }
 
-export function CourseBrowser({ onCourseSelect, calendarCourses = [], onAddToCalendar, onRemoveFromCalendar, favoritedCourses = [], onToggleFavorite }: CourseBrowserProps) {
+export function CourseBrowser({ onCourseSelect, calendarCourses = [], onAddToCalendar, onRemoveFromCalendar, favoritedCourses = [], onToggleFavorite, allReviewsByCourse = {} }: CourseBrowserProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDepartments, setSelectedDepartments] = useState<string[]>([]);
   const [minRating, setMinRating] = useState(0);
@@ -52,14 +53,48 @@ export function CourseBrowser({ onCourseSelect, calendarCourses = [], onAddToCal
     setSelectedCredits([]);
   };
 
+  // Calculate averages from reviews for a course
+  const calculateAverage = (values: number[]): number => {
+    if (values.length === 0) return 0;
+    const sum = values.reduce((acc, val) => acc + val, 0);
+    return sum / values.length;
+  };
+
+  // Get course rating, review count, and workload from reviews
+  const getCourseStats = (course: Course) => {
+    const reviews = allReviewsByCourse[course.id] || [];
+    
+    if (reviews.length === 0) {
+      return {
+        rating: course.rating,
+        reviewCount: course.reviewCount,
+        workload: course.workload
+      };
+    }
+    
+    const avgDifficulty = calculateAverage(reviews.map(r => r.difficulty));
+    const avgWorkload = calculateAverage(reviews.map(r => r.workload));
+    const avgLearningGain = calculateAverage(reviews.map(r => r.learningGain));
+    const overallRating = (avgDifficulty + avgWorkload + avgLearningGain) / 3;
+    
+    return {
+      rating: overallRating,
+      reviewCount: reviews.length,
+      workload: avgWorkload
+    };
+  };
+
   const filteredCourses = mockCourses
     .filter(course => {
+      const stats = getCourseStats(course);
       const matchesSearch = course.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
                            course.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                           course.professor.toLowerCase().includes(searchQuery.toLowerCase());
+                           (course.professors && course.professors.length > 0 
+                             ? course.professors.some(p => p.toLowerCase().includes(searchQuery.toLowerCase()))
+                             : course.professor.toLowerCase().includes(searchQuery.toLowerCase()));
       const matchesDepartment = selectedDepartments.length === 0 || selectedDepartments.includes(course.department);
-      const matchesRating = course.rating >= minRating;
-      const matchesWorkload = course.workload <= maxWorkload;
+      const matchesRating = stats.rating >= minRating;
+      const matchesWorkload = stats.workload <= maxWorkload;
       const matchesPrereq = prerequisiteFilter === 'all' || 
                            (prerequisiteFilter === 'yes' && course.prerequisites.length > 0) ||
                            (prerequisiteFilter === 'no' && course.prerequisites.length === 0);
@@ -68,13 +103,15 @@ export function CourseBrowser({ onCourseSelect, calendarCourses = [], onAddToCal
       return matchesSearch && matchesDepartment && matchesRating && matchesWorkload && matchesPrereq && matchesCredits;
     })
     .sort((a, b) => {
+      const statsA = getCourseStats(a);
+      const statsB = getCourseStats(b);
       switch (sortBy) {
         case 'rating':
-          return b.rating - a.rating;
+          return statsB.rating - statsA.rating;
         case 'difficulty':
           return a.difficulty - b.difficulty;
         case 'workload':
-          return a.workload - b.workload;
+          return statsA.workload - statsB.workload;
         default:
           return 0;
       }
@@ -323,12 +360,14 @@ export function CourseBrowser({ onCourseSelect, calendarCourses = [], onAddToCal
 
           {/* Course Grid */}
           <div className="grid gap-4">
-            {filteredCourses.map((course) => (
-              <Card 
-                key={course.id} 
-                className="hover:shadow-lg transition-shadow cursor-pointer"
-                onClick={() => onCourseSelect(course)}
-              >
+            {filteredCourses.map((course) => {
+              const stats = getCourseStats(course);
+              return (
+                <Card 
+                  key={course.id} 
+                  className="hover:shadow-lg transition-shadow cursor-pointer"
+                  onClick={() => onCourseSelect(course)}
+                >
                 <CardContent className="p-6">
                   <div className="flex justify-between items-start mb-3">
                     <div className="flex-1">
@@ -344,14 +383,23 @@ export function CourseBrowser({ onCourseSelect, calendarCourses = [], onAddToCal
                       </div>
                       <h4 className="mb-2">{course.title}</h4>
                       <p className="text-sm text-muted-foreground mb-2">
-                        {course.professor} • {course.department}
+                        {course.professors && course.professors.length > 0 
+                          ? (course.professors.length > 1 
+                              ? `${course.professors.join(', ')} • ${course.department}`
+                              : `${course.professors[0]} • ${course.department}`)
+                          : `${course.professor} • ${course.department}`}
                       </p>
+                      {course.schedules && course.schedules.length > 1 && (
+                        <p className="text-xs text-muted-foreground mb-2">
+                          {course.schedules.length} timeslots available
+                        </p>
+                      )}
                     </div>
                     
                     <div className="flex items-center gap-2 ml-4">
-                      <Star className={`h-5 w-5 ${getRatingColor(course.rating)}`} />
-                      <span className={`font-medium ${getRatingColor(course.rating)}`}>
-                        {course.rating.toFixed(1)}
+                      <Star className={`h-5 w-5 ${getRatingColor(stats.rating)}`} />
+                      <span className={`font-medium ${getRatingColor(stats.rating)}`}>
+                        {stats.rating.toFixed(1)}
                       </span>
                     </div>
                   </div>
@@ -363,14 +411,18 @@ export function CourseBrowser({ onCourseSelect, calendarCourses = [], onAddToCal
                   <div className="flex items-center gap-4 mb-4 text-sm text-muted-foreground">
                     <div className="flex items-center gap-1">
                       <Clock className="h-3 w-3" />
-                      <span>{course.schedule}</span>
+                      <span>{course.schedules && course.schedules.length > 0 
+                        ? (course.schedules.length > 1 
+                            ? `${course.schedules.length} timeslots`
+                            : course.schedules[0])
+                        : course.schedule}</span>
                     </div>
                     <div className="flex items-center gap-1">
                       <Users className="h-3 w-3" />
-                      <span>{course.reviewCount} reviews</span>
+                      <span>{stats.reviewCount} reviews</span>
                     </div>
                     <div>
-                      Workload: {course.workload.toFixed(1)}/5
+                      Workload: {stats.workload.toFixed(1)}/5
                     </div>
                   </div>
 
@@ -420,8 +472,9 @@ export function CourseBrowser({ onCourseSelect, calendarCourses = [], onAddToCal
                     </Button>
                   </div>
                 </CardContent>
-              </Card>
-            ))}
+                </Card>
+              );
+            })}
           </div>
 
           {filteredCourses.length === 0 && (

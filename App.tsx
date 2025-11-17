@@ -11,7 +11,7 @@ import { Calendar, Search, User, LogOut, ChevronDown } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './components/ui/dropdown-menu';
 import { Toaster } from './components/ui/sonner';
 import { Course } from './components/course-data';
-import { userDatabase } from './components/user-data';
+import { userDatabase, UserPreferences } from './components/user-data';
 import { toast } from 'sonner';
 
 export default function App() {
@@ -26,38 +26,108 @@ export default function App() {
   const [courseHistory, setCourseHistory] = useState<Array<{ course: Course; hasReview: boolean; reviewData?: any }>>([]);
   const [userReviews, setUserReviews] = useState<Record<string, any>>({});
   const [localReviews, setLocalReviews] = useState<any[]>([]);
+  const [allReviewsByCourse, setAllReviewsByCourse] = useState<Record<string, any[]>>({});
+  const [courseSelectedSchedules, setCourseSelectedSchedules] = useState<Record<string, string>>({}); // courseId -> selected schedule string
 
-  // Check for existing user on app load
+  // Check for existing user on app load and load preferences
   useEffect(() => {
     const existingUser = userDatabase.getCurrentUser();
     if (existingUser) {
       setCurrentUser(existingUser);
       setIsLoggedIn(true);
+      // Load user preferences
+      const preferences = userDatabase.loadUserPreferences(existingUser.id);
+      if (preferences) {
+        setCalendarCourses(preferences.calendarCourses || []);
+        setFavoritedCourses(preferences.favoritedCourses || []);
+        setCourseHistory(preferences.courseHistory || []);
+        setUserMajor(preferences.userMajor || 'Computer Science');
+        setTargetCredits(preferences.targetCredits || 0);
+        setCourseSelectedSchedules(preferences.courseSelectedSchedules || {});
+        setAllReviewsByCourse(preferences.allReviewsByCourse || {});
+        setUserReviews(preferences.userReviews || {});
+      }
     }
   }, []);
 
   const handleLogin = (user: any) => {
     setCurrentUser(user);
     setIsLoggedIn(true);
+    // Load user preferences
+    const preferences = userDatabase.loadUserPreferences(user.id);
+    if (preferences) {
+      setCalendarCourses(preferences.calendarCourses || []);
+      setFavoritedCourses(preferences.favoritedCourses || []);
+      setCourseHistory(preferences.courseHistory || []);
+      setUserMajor(preferences.userMajor || 'Computer Science');
+      setTargetCredits(preferences.targetCredits || 0);
+      setCourseSelectedSchedules(preferences.courseSelectedSchedules || {});
+      setAllReviewsByCourse(preferences.allReviewsByCourse || {});
+      setUserReviews(preferences.userReviews || {});
+    }
     setCurrentView('browse');
   };
 
   const handleSignup = (user: any) => {
     setCurrentUser(user);
     setIsLoggedIn(true);
+    // New users start with default preferences
+    setCalendarCourses([]);
+    setFavoritedCourses([]);
+    setCourseHistory([]);
+    setUserMajor('Computer Science');
+    setTargetCredits(0);
+    setCourseSelectedSchedules({});
+    setAllReviewsByCourse({});
+    setUserReviews({});
     setCurrentView('browse');
   };
 
   const handleLogout = () => {
+    // Save preferences before logging out (if user was logged in)
+    if (currentUser) {
+      const preferences = {
+        calendarCourses,
+        favoritedCourses,
+        courseHistory,
+        userMajor,
+        targetCredits,
+        courseSelectedSchedules,
+        allReviewsByCourse,
+        userReviews
+      };
+      userDatabase.saveUserPreferences(currentUser.id, preferences);
+    }
+    
     userDatabase.logout();
     setCurrentUser(null);
     setIsLoggedIn(false);
     setCalendarCourses([]); // Reset calendar completely
+    setCourseSelectedSchedules({}); // Reset selected schedules
     setLocalReviews([]); // Reset reviews
     setCourseHistory([]); // Reset course history
     setFavoritedCourses([]); // Reset favorites
+    setAllReviewsByCourse({}); // Reset reviews by course
+    setUserReviews({}); // Reset user reviews
     setCurrentView('landing');
   };
+
+  // Save preferences whenever they change (only if user is logged in)
+  useEffect(() => {
+    if (isLoggedIn && currentUser) {
+      const preferences: UserPreferences = {
+        calendarCourses,
+        favoritedCourses,
+        courseHistory,
+        userMajor,
+        targetCredits,
+        courseSelectedSchedules,
+        allReviewsByCourse,
+        userReviews
+      };
+      userDatabase.saveUserPreferences(currentUser.id, preferences);
+    }
+  }, [calendarCourses, favoritedCourses, courseHistory, userMajor, targetCredits, courseSelectedSchedules, allReviewsByCourse, userReviews, isLoggedIn, currentUser]);
 
   const toggleFavorite = (course: Course) => {
     setFavoritedCourses(prev => {
@@ -92,6 +162,11 @@ export default function App() {
   const handleReviewDelete = (courseId: string, reviewId: string) => {
     // Remove the review from local reviews state
     setLocalReviews(prev => prev.filter(review => review.id !== reviewId));
+    // Also remove from all reviews by course
+    setAllReviewsByCourse(prev => ({
+      ...prev,
+      [courseId]: (prev[courseId] || []).filter(review => review.id !== reviewId)
+    }));
     toast.success('Review deleted successfully');
   };
 
@@ -116,7 +191,7 @@ export default function App() {
   const renderCurrentView = () => {
     switch (currentView) {
       case 'landing':
-        return <LandingPage onGetStarted={() => setCurrentView('browse')} />;
+        return <LandingPage onGetStarted={() => setCurrentView('browse')} onStartPlanning={() => setCurrentView('calendar')} />;
       case 'login':
         return <LoginPage onLogin={handleLogin} onBack={() => setCurrentView('landing')} onSignup={() => setCurrentView('signup')} />;
       case 'signup':
@@ -126,6 +201,8 @@ export default function App() {
           <CourseBrowser 
             onCourseSelect={(course) => {
               setSelectedCourse(course);
+              // Load reviews for this course
+              setLocalReviews(allReviewsByCourse[course.id] || []);
               setCurrentView('course-detail');
             }}
             calendarCourses={calendarCourses}
@@ -142,6 +219,7 @@ export default function App() {
             }}
             favoritedCourses={favoritedCourses}
             onToggleFavorite={toggleFavorite}
+            allReviewsByCourse={allReviewsByCourse}
           />
         );
       case 'course-detail':
@@ -168,7 +246,26 @@ export default function App() {
             onReviewDelete={handleReviewDelete}
             username={currentUser?.username || ''}
             localReviews={localReviews}
-            setLocalReviews={setLocalReviews}
+            setLocalReviews={(reviews) => {
+              setLocalReviews(reviews);
+              // Also update all reviews by course
+              if (selectedCourse) {
+                setAllReviewsByCourse(prev => ({
+                  ...prev,
+                  [selectedCourse.id]: reviews
+                }));
+              }
+            }}
+            onReviewsUpdate={(courseId, reviews) => {
+              setAllReviewsByCourse(prev => ({
+                ...prev,
+                [courseId]: reviews
+              }));
+              // Also update localReviews if this is the selected course
+              if (selectedCourse && selectedCourse.id === courseId) {
+                setLocalReviews(reviews);
+              }
+            }}
           />
         );
       case 'calendar':
@@ -177,11 +274,24 @@ export default function App() {
             calendarCourses={calendarCourses} 
             onRemoveFromCalendar={(courseId) => {
               setCalendarCourses(calendarCourses.filter(c => c.id !== courseId));
+              // Remove the selected schedule for this course
+              setCourseSelectedSchedules(prev => {
+                const newSchedules = { ...prev };
+                delete newSchedules[courseId];
+                return newSchedules;
+              });
             }}
-            onAddToCalendar={(course) => {
+            onAddToCalendar={(course, selectedSchedule) => {
               const isAlreadyAdded = calendarCourses.some(c => c.id === course.id);
               if (!isAlreadyAdded) {
                 setCalendarCourses([...calendarCourses, course]);
+                // Store the selected schedule for this course
+                if (selectedSchedule) {
+                  setCourseSelectedSchedules(prev => ({
+                    ...prev,
+                    [course.id]: selectedSchedule
+                  }));
+                }
                 return true;
               }
               return false;
@@ -189,11 +299,16 @@ export default function App() {
             isLoggedIn={isLoggedIn}
             favoritedCourses={favoritedCourses}
             onToggleFavorite={toggleFavorite}
+            onCourseSelect={(course) => {
+              setSelectedCourse(course);
+              setCurrentView('course-detail');
+            }}
+            courseSelectedSchedules={courseSelectedSchedules}
           />
         );
       case 'profile':
         if (!isLoggedIn) {
-          return <LandingPage onGetStarted={() => setCurrentView('browse')} />;
+          return <LandingPage onGetStarted={() => setCurrentView('browse')} onStartPlanning={() => setCurrentView('calendar')} />;
         }
         return (
           <ProfilePage
@@ -226,7 +341,7 @@ export default function App() {
           />
         );
       default:
-        return <LandingPage onGetStarted={() => setCurrentView('browse')} />;
+        return <LandingPage onGetStarted={() => setCurrentView('browse')} onStartPlanning={() => setCurrentView('calendar')} />;
     }
   };
 
