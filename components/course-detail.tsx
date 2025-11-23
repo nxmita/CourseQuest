@@ -10,16 +10,19 @@ import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Checkbox } from './ui/checkbox';
 import { Slider } from './ui/slider';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from './ui/alert-dialog';
 import { ArrowLeft, Star, Clock, Users, Download, Plus, BookOpen, MessageCircle, Upload, FileText, CheckCircle, X, AlertCircle, Heart } from 'lucide-react';
 import { toast } from "sonner";
-import { Course, Review, mockReviews } from './course-data';
+import { Course, Review, mockReviews, mockCourses } from './course-data';
 
 interface CourseDetailProps {
   course: Course;
   onBack: () => void;
   calendarCourses?: Course[];
-  onAddToCalendar: (course: Course) => boolean;
+  onAddToCalendar: (course: Course, selectedSchedule?: string) => boolean;
   onRemoveFromCalendar?: (courseId: string) => void;
+  onReplaceCourse?: (oldCourseId: string, newCourse: Course, selectedSchedule?: string) => void;
   isLoggedIn?: boolean;
   isFavorited?: boolean;
   onToggleFavorite?: () => void;
@@ -29,6 +32,7 @@ interface CourseDetailProps {
   localReviews?: any[];
   setLocalReviews?: (reviews: any[]) => void;
   onReviewsUpdate?: (courseId: string, reviews: any[]) => void;
+  courseSelectedSchedules?: Record<string, string>;
 }
 
 interface SyllabusUpload {
@@ -44,7 +48,12 @@ interface SyllabusUpload {
 
 const syllabusArchive: any[] = [];
 
-export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCalendar, onRemoveFromCalendar, isLoggedIn = false, isFavorited = false, onToggleFavorite, onReviewSubmit, onReviewDelete, username, localReviews = [], setLocalReviews, onReviewsUpdate }: CourseDetailProps) {
+export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCalendar, onRemoveFromCalendar, onReplaceCourse, isLoggedIn = false, isFavorited = false, onToggleFavorite, onReviewSubmit, onReviewDelete, username, localReviews = [], setLocalReviews, onReviewsUpdate, courseSelectedSchedules = {} }: CourseDetailProps) {
+  const [timeslotDialogOpen, setTimeslotDialogOpen] = useState(false);
+  const [selectedSchedule, setSelectedSchedule] = useState<string>('');
+  const [conflictDialogOpen, setConflictDialogOpen] = useState(false);
+  const [conflictCourse, setConflictCourse] = useState<Course | null>(null);
+  const [conflictSelectedSchedule, setConflictSelectedSchedule] = useState<string>('');
   const [newReview, setNewReview] = useState({
     difficulty: 3,
     workload: 3,
@@ -74,6 +83,19 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
 
   // Get reviews for this course or use empty array - use only local reviews
   const courseReviews = localReviews;
+
+  // Helper function to format prerequisites with course names
+  const formatPrerequisite = (prereq: string): string => {
+    // Handle complex patterns like "1 from (TAC-265 or ITP-265)" or "TAC-325 and TAC-375"
+    // Pattern matches course codes: letters, dash, digits, optionally followed by a letter
+    // Examples: ENGR-100A, TAC-265, ITP-265, CSCI-103, ACAD-275
+    const courseCodePattern = /([A-Z]+-\d+[A-Z]?)/g;
+    
+    return prereq.replace(courseCodePattern, (match) => {
+      const prereqCourse = mockCourses.find(c => c.code === match);
+      return prereqCourse ? `${prereqCourse.code} - ${prereqCourse.title}` : match;
+    });
+  };
 
   const getRatingColor = (rating: number) => {
     if (rating >= 4.0) return 'text-green-600';
@@ -168,9 +190,180 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
   const getCurrentYear = () => new Date().getFullYear();
   const years = Array.from({ length: 10 }, (_, i) => getCurrentYear() - i);
 
+  // Helper functions for schedule parsing and conflict checking (same as course-browser)
+  const parseSchedule = (schedule: string) => {
+    if (!schedule || typeof schedule !== 'string' || schedule === 'TBA' || schedule.includes('TBA')) {
+      return [];
+    }
+    const scheduleSlots: Array<{ day: string; startTime: string; endTime: string }> = [];
+    const normalizeTime = (timeStr: string) => {
+      if (!timeStr) return '';
+      return timeStr.replace(/(\d{1,2}):(\d{2})\s?(AM|PM)/i, (match, hour, minute, period) => {
+        const hourNum = parseInt(hour, 10);
+        return `${hourNum}:${minute} ${period.toUpperCase()}`;
+      });
+    };
+    const timeRangeMatch = schedule.match(/(\d{1,2}:\d{2})-(\d{1,2}:\d{2})\s?(AM|PM)/i);
+    let startTime = '';
+    let endTime = '';
+    if (timeRangeMatch) {
+      const [, startTimeStr, endTimeStr, period] = timeRangeMatch;
+      startTime = normalizeTime(`${startTimeStr} ${period}`);
+      endTime = normalizeTime(`${endTimeStr} ${period}`);
+    } else {
+      const timeMatches = schedule.match(/(\d{1,2}:\d{2}\s?(?:AM|PM))/gi);
+      startTime = timeMatches && timeMatches[0] ? normalizeTime(timeMatches[0]) : '';
+      endTime = timeMatches && timeMatches[1] ? normalizeTime(timeMatches[1]) : '';
+    }
+    const dayMap: { [key: string]: string[] } = {
+      'MWF': ['Monday', 'Wednesday', 'Friday'],
+      'TTh': ['Tuesday', 'Thursday'],
+      'TuTh': ['Tuesday', 'Thursday'],
+      'MW': ['Monday', 'Wednesday'],
+      'M': ['Monday'],
+      'T': ['Tuesday'],
+      'W': ['Wednesday'],
+      'Th': ['Thursday'],
+      'F': ['Friday']
+    };
+    if (schedule.includes('MWF')) {
+      dayMap['MWF'].forEach(day => scheduleSlots.push({ day, startTime, endTime }));
+    } else if (schedule.includes('TTh') || schedule.includes('TuTh')) {
+      dayMap['TTh'].forEach(day => scheduleSlots.push({ day, startTime, endTime }));
+    } else if (schedule.includes('MW')) {
+      dayMap['MW'].forEach(day => scheduleSlots.push({ day, startTime, endTime }));
+    } else {
+      if (schedule.includes(' M ') || schedule.startsWith('M ') || schedule.includes(' M')) {
+        dayMap['M'].forEach(day => scheduleSlots.push({ day, startTime, endTime }));
+      }
+      if (schedule.includes(' T ') || schedule.startsWith('T ') || (schedule.includes(' T') && !schedule.includes('Th'))) {
+        dayMap['T'].forEach(day => scheduleSlots.push({ day, startTime, endTime }));
+      }
+      if (schedule.includes(' W ') || schedule.startsWith('W ') || schedule.includes(' W')) {
+        dayMap['W'].forEach(day => scheduleSlots.push({ day, startTime, endTime }));
+      }
+      if (schedule.includes('Th ') || schedule.includes(' Th')) {
+        dayMap['Th'].forEach(day => scheduleSlots.push({ day, startTime, endTime }));
+      }
+      if (schedule.includes(' F ') || schedule.startsWith('F ') || schedule.includes(' F')) {
+        dayMap['F'].forEach(day => scheduleSlots.push({ day, startTime, endTime }));
+      }
+    }
+    return scheduleSlots;
+  };
+
+  const timeToMinutes = (timeStr: string): number => {
+    if (!timeStr) return 0;
+    try {
+      const [time, period] = timeStr.split(' ');
+      const [hours, minutes] = time.split(':').map(Number);
+      let hour24 = hours;
+      if (period === 'PM' && hours !== 12) hour24 += 12;
+      if (period === 'AM' && hours === 12) hour24 = 0;
+      return hour24 * 60 + minutes;
+    } catch (error) {
+      return 0;
+    }
+  };
+
+  const calculateEndTime = (startTime: string): string => {
+    try {
+      const [time, period] = startTime.split(' ');
+      const [hours, minutes] = time.split(':').map(Number);
+      let hour24 = hours;
+      if (period === 'PM' && hours !== 12) hour24 += 12;
+      if (period === 'AM' && hours === 12) hour24 = 0;
+      const endMinutes = minutes + 50;
+      const endHour24 = hour24 + Math.floor(endMinutes / 60);
+      const finalMinutes = endMinutes % 60;
+      const endHour12 = endHour24 > 12 ? endHour24 - 12 : endHour24 === 0 ? 12 : endHour24;
+      const endPeriod = endHour24 >= 12 ? 'PM' : 'AM';
+      return `${endHour12}:${finalMinutes.toString().padStart(2, '0')} ${endPeriod}`;
+    } catch (error) {
+      return '11:50 AM';
+    }
+  };
+
+  const timesOverlap = (start1: string, end1: string, start2: string, end2: string): boolean => {
+    const start1Min = timeToMinutes(start1);
+    const end1Min = timeToMinutes(end1 || calculateEndTime(start1));
+    const start2Min = timeToMinutes(start2);
+    const end2Min = timeToMinutes(end2 || calculateEndTime(start2));
+    return start1Min < end2Min && start2Min < end1Min;
+  };
+
+  // Check for conflicts between a schedule and existing calendar courses
+  const checkScheduleConflict = (newSchedule: string, newCourse: Course): { hasConflict: boolean; conflictingCourse: Course | null } => {
+    if (!calendarCourses || calendarCourses.length === 0) {
+      return { hasConflict: false, conflictingCourse: null };
+    }
+    const newSlots = parseSchedule(newSchedule);
+    for (const existingCourse of calendarCourses) {
+      if (existingCourse.id === newCourse.id) {
+        continue;
+      }
+      let existingSchedules: string[] = [];
+      if (courseSelectedSchedules[existingCourse.id]) {
+        existingSchedules = [courseSelectedSchedules[existingCourse.id]];
+      } else {
+        existingSchedules = (existingCourse.schedules && existingCourse.schedules.length > 0) 
+          ? existingCourse.schedules 
+          : (existingCourse.schedule ? [existingCourse.schedule] : []);
+      }
+      for (const existingSchedule of existingSchedules) {
+        const existingSlots = parseSchedule(existingSchedule);
+        for (const newSlot of newSlots) {
+          if (!newSlot.day || !newSlot.startTime) continue;
+          for (const existingSlot of existingSlots) {
+            if (!existingSlot.day || !existingSlot.startTime) continue;
+            if (newSlot.day === existingSlot.day) {
+              const newEndTime = newSlot.endTime || calculateEndTime(newSlot.startTime);
+              const existingEndTime = existingSlot.endTime || calculateEndTime(existingSlot.startTime);
+              if (timesOverlap(newSlot.startTime, newEndTime, existingSlot.startTime, existingEndTime)) {
+                return { hasConflict: true, conflictingCourse: existingCourse };
+              }
+            }
+          }
+        }
+      }
+    }
+    return { hasConflict: false, conflictingCourse: null };
+  };
+
   const handleAddToCalendar = () => {
-    if (!isInCalendar) {
-      const wasAdded = onAddToCalendar(course);
+    // Check if course is already in calendar
+    if (isInCalendar) {
+      toast.info(`${course.code} is already in your calendar`);
+      return;
+    }
+
+    // Get available schedules for this course
+    const availableSchedules = (course.schedules && course.schedules.length > 0) 
+      ? course.schedules 
+      : (course.schedule ? [course.schedule] : []);
+
+    // If course has multiple schedules, show timeslot selection dialog
+    if (availableSchedules.length > 1) {
+      setSelectedSchedule(availableSchedules[0]);
+      setTimeslotDialogOpen(true);
+      return;
+    }
+
+    // Single schedule - check for conflicts directly
+    if (availableSchedules.length === 1) {
+      const schedule = availableSchedules[0];
+      const conflict = checkScheduleConflict(schedule, course);
+      
+      if (conflict.hasConflict && conflict.conflictingCourse) {
+        // Show conflict dialog
+        setConflictCourse(conflict.conflictingCourse);
+        setConflictSelectedSchedule(schedule);
+        setConflictDialogOpen(true);
+        return;
+      }
+      
+      // No conflict, add directly
+      const wasAdded = onAddToCalendar(course, schedule);
       if (wasAdded) {
         toast.success(`Added ${course.code} to your calendar!`);
         setActionSuccess(true);
@@ -179,6 +372,64 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
         toast.info(`${course.code} is already in your calendar`);
       }
     }
+  };
+
+  const handleTimeslotConfirm = () => {
+    if (!selectedSchedule) return;
+
+    // Check for conflicts with the selected schedule
+    const conflict = checkScheduleConflict(selectedSchedule, course);
+    
+    if (conflict.hasConflict && conflict.conflictingCourse) {
+      // Show conflict dialog
+      setConflictCourse(conflict.conflictingCourse);
+      setConflictSelectedSchedule(selectedSchedule);
+      setTimeslotDialogOpen(false);
+      setConflictDialogOpen(true);
+      return;
+    }
+
+    // No conflict, add the course
+    const wasAdded = onAddToCalendar(course, selectedSchedule);
+    if (wasAdded) {
+      toast.success(`Added ${course.code} (${selectedSchedule}) to your calendar!`);
+      setActionSuccess(true);
+      setTimeout(() => setActionSuccess(false), 3000);
+    }
+    
+    setTimeslotDialogOpen(false);
+    setSelectedSchedule('');
+  };
+
+  const handleConflictConfirm = () => {
+    if (!conflictSelectedSchedule || !conflictCourse) return;
+
+    if (onReplaceCourse) {
+      onReplaceCourse(conflictCourse.id, course, conflictSelectedSchedule);
+      toast.success(`Replaced ${conflictCourse.code} with ${course.code} in your calendar!`);
+      setActionSuccess(true);
+      setTimeout(() => setActionSuccess(false), 3000);
+    } else if (onRemoveFromCalendar && onAddToCalendar) {
+      onRemoveFromCalendar(conflictCourse.id);
+      setTimeout(() => {
+        const wasAdded = onAddToCalendar(course, conflictSelectedSchedule);
+        if (wasAdded) {
+          toast.success(`Replaced ${conflictCourse.code} with ${course.code} in your calendar!`);
+          setActionSuccess(true);
+          setTimeout(() => setActionSuccess(false), 3000);
+        }
+      }, 0);
+    }
+
+    setConflictDialogOpen(false);
+    setConflictCourse(null);
+    setConflictSelectedSchedule('');
+  };
+
+  const handleConflictCancel = () => {
+    setConflictDialogOpen(false);
+    setConflictCourse(null);
+    setConflictSelectedSchedule('');
   };
 
   const handleRemoveFromCalendar = () => {
@@ -319,10 +570,9 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-4">
           <div>
             <div className="flex items-center gap-3 mb-2">
-              <h1 className="text-3xl">{course.code}</h1>
+              <h1 className="text-3xl">{course.code} - {course.title}</h1>
               <Badge variant="secondary">{course.credits} credits</Badge>
             </div>
-            <h2 className="text-xl text-muted-foreground mb-2">{course.title}</h2>
             <p className="text-muted-foreground">
               {course.professors && course.professors.length > 0 
                 ? (course.professors.length > 1 
@@ -344,9 +594,9 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
                 )}
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground mt-1">
-                {course.schedule}
-              </p>
+            <p className="text-sm text-muted-foreground mt-1">
+              {course.schedule}
+            </p>
             )}
           </div>
           
@@ -392,7 +642,7 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
                 ) : (
                   <>
                     <Plus className="h-4 w-4 mr-2" />
-                    Select
+                    Add to Calendar
                   </>
                 )}
               </Button>
@@ -494,7 +744,7 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
                     </h4>
                     <div className="flex flex-wrap gap-2">
                       {course.prerequisites.map((prereq) => (
-                        <Badge key={prereq} variant="outline">{prereq}</Badge>
+                        <Badge key={prereq} variant="outline">{formatPrerequisite(prereq)}</Badge>
                       ))}
                     </div>
                   </div>
@@ -992,6 +1242,99 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Timeslot Selection Dialog */}
+      <Dialog open={timeslotDialogOpen} onOpenChange={setTimeslotDialogOpen}>
+        <DialogContent className="bg-white border-2 border-gray-300 shadow-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-gray-900">Select Timeslot</DialogTitle>
+            <DialogDescription className="text-base text-gray-700">
+              {course && (
+                <p className="mt-2">
+                  <span className="font-semibold text-gray-900">{course.code}</span> has multiple timeslots. Please select which one you'd like to add to your calendar.
+                </p>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          {course && (
+            <div className="space-y-4 mt-4">
+              <Select value={selectedSchedule} onValueChange={setSelectedSchedule}>
+                <SelectTrigger className="border-gray-300">
+                  <SelectValue placeholder="Select a timeslot" />
+                </SelectTrigger>
+                <SelectContent>
+                  {((course.schedules && course.schedules.length > 0) 
+                    ? course.schedules 
+                    : (course.schedule ? [course.schedule] : [])
+                  ).map((schedule, index) => (
+                    <SelectItem key={index} value={schedule}>
+                      {schedule}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+                        </div>
+          )}
+          <DialogFooter className="mt-6">
+            <Button variant="outline" onClick={() => {
+              setTimeslotDialogOpen(false);
+              setSelectedSchedule('');
+            }} className="border-gray-300">
+              Cancel
+                      </Button>
+            <Button onClick={handleTimeslotConfirm} style={{ backgroundColor: '#990000', color: 'white' }} className="hover:opacity-90">
+              Add to Calendar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Conflict Confirmation Dialog */}
+      <AlertDialog open={conflictDialogOpen} onOpenChange={setConflictDialogOpen}>
+        <AlertDialogContent className="bg-white border-2 border-gray-300 shadow-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-xl font-bold text-gray-900">Time Conflict</AlertDialogTitle>
+            <AlertDialogDescription className="text-base text-gray-700">
+              {conflictCourse && course && (
+                <div className="space-y-3 mt-4">
+                  <p className="font-semibold text-gray-900">
+                    <span className="text-red-600">{course.code}</span> conflicts with <span className="text-red-600">{conflictCourse.code}</span> that's already in your calendar at this timeslot.
+                  </p>
+                  <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
+                    <p className="text-sm font-medium text-gray-800 mb-1">
+                      Current course:
+                    </p>
+                    <p className="text-sm text-gray-700">
+                      {conflictCourse.code} - {conflictCourse.title}
+                    </p>
+                </div>
+                  <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
+                    <p className="text-sm font-medium text-gray-800 mb-1">
+                      New course:
+                    </p>
+                    <p className="text-sm text-gray-700">
+                      {course.code} - {course.title}
+                    </p>
+                    </div>
+                  <p className="mt-4 font-semibold text-gray-900 text-base">
+                    Would you like to replace the current course in this timeslot?
+                  </p>
+                    </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleConflictCancel} className="border-gray-300">No, Keep Current</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleConflictConfirm}
+                style={{ backgroundColor: '#990000', color: 'white' }}
+                className="hover:opacity-90"
+              >
+              Yes, Replace
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

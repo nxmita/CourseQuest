@@ -206,20 +206,67 @@ export default function App() {
               setCurrentView('course-detail');
             }}
             calendarCourses={calendarCourses}
-            onAddToCalendar={(course) => {
-              const isAlreadyAdded = calendarCourses.some(c => c.id === course.id);
-              if (!isAlreadyAdded) {
-                setCalendarCourses([...calendarCourses, course]);
-                return true;
-              }
-              return false;
+            onAddToCalendar={(course, selectedSchedule) => {
+              setCalendarCourses(prev => {
+                const isAlreadyAdded = prev.some(c => c.id === course.id);
+                if (!isAlreadyAdded) {
+                  // Store the selected schedule for this course
+                  if (selectedSchedule) {
+                    setCourseSelectedSchedules(prevSchedules => ({
+                      ...prevSchedules,
+                      [course.id]: selectedSchedule
+                    }));
+                  }
+                  return [...prev, course];
+                }
+                return prev;
+              });
+              // Return true if course wasn't already added (check current state for return value)
+              const wasAdded = !calendarCourses.some(c => c.id === course.id);
+              return wasAdded;
             }}
             onRemoveFromCalendar={(courseId) => {
-              setCalendarCourses(calendarCourses.filter(c => c.id !== courseId));
+              setCalendarCourses(prev => prev.filter(c => c.id !== courseId));
+              // Remove the selected schedule for this course
+              setCourseSelectedSchedules(prev => {
+                const newSchedules = { ...prev };
+                delete newSchedules[courseId];
+                return newSchedules;
+              });
+            }}
+            onReplaceCourse={(oldCourseId, newCourse, selectedSchedule) => {
+              // Atomically replace old course with new course
+              setCalendarCourses(prev => {
+                const filtered = prev.filter(c => c.id !== oldCourseId);
+                const isAlreadyAdded = filtered.some(c => c.id === newCourse.id);
+                if (!isAlreadyAdded) {
+                  // Store the selected schedule for the new course
+                  if (selectedSchedule) {
+                    setCourseSelectedSchedules(prevSchedules => {
+                      const newSchedules = { ...prevSchedules };
+                      delete newSchedules[oldCourseId];
+                      return {
+                        ...newSchedules,
+                        [newCourse.id]: selectedSchedule
+                      };
+                    });
+                  } else {
+                    // Remove the schedule for the old course
+                    setCourseSelectedSchedules(prev => {
+                      const newSchedules = { ...prev };
+                      delete newSchedules[oldCourseId];
+                      return newSchedules;
+                    });
+                  }
+                  return [...filtered, newCourse];
+                }
+                return filtered;
+              });
             }}
             favoritedCourses={favoritedCourses}
             onToggleFavorite={toggleFavorite}
             allReviewsByCourse={allReviewsByCourse}
+            courseSelectedSchedules={courseSelectedSchedules}
           />
         );
       case 'course-detail':
@@ -228,17 +275,64 @@ export default function App() {
             course={selectedCourse!}
             onBack={() => setCurrentView('browse')}
             calendarCourses={calendarCourses}
-            onAddToCalendar={(course) => {
-              const isAlreadyAdded = calendarCourses.some(c => c.id === course.id);
-              if (!isAlreadyAdded) {
-                setCalendarCourses([...calendarCourses, course]);
-                return true;
-              }
-              return false;
+            onAddToCalendar={(course, selectedSchedule) => {
+              setCalendarCourses(prev => {
+                const isAlreadyAdded = prev.some(c => c.id === course.id);
+                if (!isAlreadyAdded) {
+                  // Store the selected schedule for this course
+                  if (selectedSchedule) {
+                    setCourseSelectedSchedules(prevSchedules => ({
+                      ...prevSchedules,
+                      [course.id]: selectedSchedule
+                    }));
+                  }
+                  return [...prev, course];
+                }
+                return prev;
+              });
+              // Return true if course wasn't already added
+              const wasAdded = !calendarCourses.some(c => c.id === course.id);
+              return wasAdded;
             }}
             onRemoveFromCalendar={(courseId) => {
-              setCalendarCourses(calendarCourses.filter(c => c.id !== courseId));
+              setCalendarCourses(prev => prev.filter(c => c.id !== courseId));
+              // Remove the selected schedule for this course
+              setCourseSelectedSchedules(prev => {
+                const newSchedules = { ...prev };
+                delete newSchedules[courseId];
+                return newSchedules;
+              });
             }}
+            onReplaceCourse={(oldCourseId, newCourse, selectedSchedule) => {
+              // Atomically replace old course with new course
+              setCalendarCourses(prev => {
+                const filtered = prev.filter(c => c.id !== oldCourseId);
+                const isAlreadyAdded = filtered.some(c => c.id === newCourse.id);
+                if (!isAlreadyAdded) {
+                  // Store the selected schedule for the new course
+                  if (selectedSchedule) {
+                    setCourseSelectedSchedules(prevSchedules => {
+                      const newSchedules = { ...prevSchedules };
+                      delete newSchedules[oldCourseId];
+                      return {
+                        ...newSchedules,
+                        [newCourse.id]: selectedSchedule
+                      };
+                    });
+                  } else {
+                    // Remove the schedule for the old course
+                    setCourseSelectedSchedules(prev => {
+                      const newSchedules = { ...prev };
+                      delete newSchedules[oldCourseId];
+                      return newSchedules;
+                    });
+                  }
+                  return [...filtered, newCourse];
+                }
+                return filtered;
+              });
+            }}
+            courseSelectedSchedules={courseSelectedSchedules}
             isLoggedIn={isLoggedIn}
             isFavorited={isFavorited(selectedCourse?.id || '')}
             onToggleFavorite={() => selectedCourse && toggleFavorite(selectedCourse)}
@@ -299,11 +393,12 @@ export default function App() {
             isLoggedIn={isLoggedIn}
             favoritedCourses={favoritedCourses}
             onToggleFavorite={toggleFavorite}
+            allReviewsByCourse={allReviewsByCourse}
+            courseSelectedSchedules={courseSelectedSchedules}
             onCourseSelect={(course) => {
               setSelectedCourse(course);
               setCurrentView('course-detail');
             }}
-            courseSelectedSchedules={courseSelectedSchedules}
           />
         );
       case 'profile':

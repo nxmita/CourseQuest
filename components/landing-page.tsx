@@ -33,22 +33,22 @@ export function LandingPage({ onGetStarted, onStartPlanning }: LandingPageProps)
           <div className="flex flex-col sm:flex-row gap-4 justify-center mb-12">
             <Button 
               size="lg" 
-              onClick={onStartPlanning || onGetStarted}
+              onClick={onGetStarted}
               style={{ backgroundColor: '#990000', color: 'white' }}
               className="px-12 py-6 text-lg hover:opacity-90"
             >
-              <Calendar className="mr-2 h-6 w-6" />
-              Start Planning
+              <BookOpen className="mr-2 h-6 w-6" />
+              Browse Courses
             </Button>
             <Button 
               variant="outline" 
               size="lg" 
               className="px-12 py-6 text-lg"
-              onClick={onGetStarted}
+              onClick={onStartPlanning || onGetStarted}
               style={{ borderColor: '#990000', color: '#990000' }}
             >
-              <BookOpen className="mr-2 h-6 w-6" />
-              Browse Courses
+              <Calendar className="mr-2 h-6 w-6" />
+              Start Planning
             </Button>
           </div>
         </div>

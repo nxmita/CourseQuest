@@ -7,7 +7,9 @@ import { Label } from './ui/label';
 import { Checkbox } from './ui/checkbox';
 import { Slider } from './ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Calendar, Clock, Plus, X, Edit2, Check, AlertCircle, Heart } from 'lucide-react';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
+import { Calendar, Clock, Plus, X, Edit2, Check, AlertCircle, Heart, ChevronDown } from 'lucide-react';
 import { toast } from "sonner";
 import { Course, mockCourses } from './course-data';
 
@@ -20,6 +22,7 @@ interface CalendarViewProps {
   onToggleFavorite?: (course: Course) => void;
   onCourseSelect?: (course: Course) => void;
   courseSelectedSchedules?: Record<string, string>; // courseId -> selected schedule string
+  allReviewsByCourse?: Record<string, any[]>; // For filtering with reviews
 }
 
 const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
@@ -140,11 +143,13 @@ const convertCoursesToTimeSlots = (courses: Course[], courseSelectedSchedules?: 
         const slots = parseSchedule(scheduleStr);
         slots.forEach(slot => {
           if (slot.day && slot.startTime) {
+            // Use the endTime from parsed schedule, or calculate default
+            const endTime = slot.endTime || calculateEndTime(slot.startTime);
             timeSlots.push({
               id: `${course.id}-${slot.day}-${slot.startTime}`,
               day: slot.day,
               startTime: slot.startTime,
-              endTime: slot.endTime,
+              endTime: endTime,
               course: {
                 id: course.id,
                 code: course.code || 'Unknown',
@@ -165,13 +170,17 @@ const convertCoursesToTimeSlots = (courses: Course[], courseSelectedSchedules?: 
   return timeSlots;
 };
 
-export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAddToCalendar, isLoggedIn = false, favoritedCourses = [], onToggleFavorite, onCourseSelect, courseSelectedSchedules = {} }: CalendarViewProps) {
+export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAddToCalendar, isLoggedIn = false, favoritedCourses = [], onToggleFavorite, onCourseSelect, courseSelectedSchedules = {}, allReviewsByCourse = {} }: CalendarViewProps) {
   const [selectedSlot, setSelectedSlot] = useState<{ day: string; time: string } | null>(null);
   const [targetCredits, setTargetCredits] = useState(0);
   const [isEditingTarget, setIsEditingTarget] = useState(false);
   const [tempTarget, setTempTarget] = useState(0);
+  const [timeslotDialogOpen, setTimeslotDialogOpen] = useState(false);
+  const [selectedCourseForTimeslot, setSelectedCourseForTimeslot] = useState<Course | null>(null);
+  const [selectedScheduleForDialog, setSelectedScheduleForDialog] = useState<string>('');
   
   // Filters
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [selectedDepartments, setSelectedDepartments] = useState<string[]>([]);
   const [minRating, setMinRating] = useState(0);
   const [maxWorkload, setMaxWorkload] = useState(5);
@@ -242,18 +251,78 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
     });
   };
 
+  // Helper function to get all time slots that a course occupies
+  const getTimeSlotsForCourse = (slot: any): string[] => {
+    if (!slot || !slot.startTime || !slot.endTime) return [slot?.startTime || ''];
+    
+    const slots: string[] = [];
+    const startMin = timeToMinutes(slot.startTime);
+    const endMin = timeToMinutes(slot.endTime);
+    
+    // Find all time slot intervals this course spans
+    timeSlots.forEach(slotTime => {
+      const slotMin = timeToMinutes(slotTime);
+      // Check if this time slot falls within the course's time range
+      if (slotMin >= startMin && slotMin < endMin) {
+        slots.push(slotTime);
+      }
+    });
+    
+    // If no matching slots found, at least return the start time
+    return slots.length > 0 ? slots : [slot.startTime];
+  };
+
+  // Helper to check if this is the first time block of a multi-hour course
+  const isFirstBlockOfCourse = (day: string, time: string, courseSlot: any) => {
+    if (!courseSlot) return false;
+    
+    const timeMin = timeToMinutes(normalizeTimeForComparison(time));
+    const slotStartMin = timeToMinutes(courseSlot.startTime);
+    
+    // Check if this time slot matches the start time of the course
+    return timeMin === slotStartMin;
+  };
+
+  // Helper to check if the block above is part of the same course
+  const hasBlockAbove = (day: string, time: string, courseSlot: any) => {
+    if (!courseSlot) return false;
+    
+    const timeIndex = timeSlots.indexOf(time);
+    if (timeIndex <= 0) return false;
+    
+    const prevTime = timeSlots[timeIndex - 1];
+    const prevSlotCourse = getSlotCourse(day, prevTime);
+    
+    return prevSlotCourse?.course?.id === courseSlot.course?.id;
+  };
+
   const isSlotOccupied = (day: string, time: string) => {
     const normalizedTime = normalizeTimeForComparison(time);
-    return userSchedule.some(slot => 
-      slot.day === day && normalizeTimeForComparison(slot.startTime) === normalizedTime
-    );
+    return userSchedule.some(slot => {
+      if (slot.day !== day) return false;
+      
+      const slotStartMin = timeToMinutes(slot.startTime);
+      const slotEndMin = timeToMinutes(slot.endTime || calculateEndTime(slot.startTime));
+      const checkTimeMin = timeToMinutes(normalizeTimeForComparison(time));
+      
+      // Check if the time slot falls within the course's time range
+      return checkTimeMin >= slotStartMin && checkTimeMin < slotEndMin;
+    });
   };
 
   const getSlotCourse = (day: string, time: string) => {
     const normalizedTime = normalizeTimeForComparison(time);
-    return userSchedule.find(slot => 
-      slot.day === day && normalizeTimeForComparison(slot.startTime) === normalizedTime
-    );
+    const checkTimeMin = timeToMinutes(normalizeTimeForComparison(time));
+    
+    return userSchedule.find(slot => {
+      if (slot.day !== day) return false;
+      
+      const slotStartMin = timeToMinutes(slot.startTime);
+      const slotEndMin = timeToMinutes(slot.endTime || calculateEndTime(slot.startTime));
+      
+      // Check if the time slot falls within the course's time range
+      return checkTimeMin >= slotStartMin && checkTimeMin < slotEndMin;
+    });
   };
 
   const handleSlotClick = (day: string, time: string) => {
@@ -294,7 +363,13 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
     }
   };
 
-  const calculateEndTime = (startTime: string): string => {
+  const calculateEndTime = (startTime: string, endTimeFromSchedule?: string): string => {
+    // If end time is provided from schedule, use it
+    if (endTimeFromSchedule) {
+      return endTimeFromSchedule;
+    }
+    
+    // Otherwise, default to 50 minutes later (standard class length)
     try {
       const [time, period] = startTime.split(' ');
       const [hours, minutes] = time.split(':').map(Number);
@@ -322,7 +397,7 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
     const start2Min = timeToMinutes(start2);
     const end2Min = timeToMinutes(end2 || calculateEndTime(start2));
     
-    return start1Min < end2Min && start2Min < end1Min;
+            return start1Min < end2Min && start2Min < end1Min;
   };
 
   const hasScheduleConflict = (course: Course) => {
@@ -429,24 +504,89 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
     }
   };
 
+  // Get course stats from reviews (same as Browse courses)
+  const getCourseStats = (course: Course) => {
+    const reviews = allReviewsByCourse[course.id] || [];
+    
+    if (reviews.length === 0) {
+      return {
+        rating: course.rating || 0,
+        reviewCount: course.reviewCount || 0,
+        workload: course.workload || 0
+      };
+    }
+    
+    const calculateAverage = (values: number[]): number => {
+      if (values.length === 0) return 0;
+      const sum = values.reduce((acc, val) => acc + val, 0);
+      return sum / values.length;
+    };
+    
+    const ratings = reviews.map((r: any) => r.rating || 0);
+    const workloads = reviews.map((r: any) => r.workload || 0);
+    
+    return {
+      rating: calculateAverage(ratings),
+      reviewCount: reviews.length,
+      workload: calculateAverage(workloads)
+    };
+  };
+
   const getFilteredCourses = () => {
     try {
       let courses = mockCourses.filter(course => {
         return !calendarCourses.some(calCourse => calCourse && calCourse.id === course.id);
       });
 
-      // Apply filters
-      courses = courses.filter(course => {
+      // Check if rating/workload filters are being used
+      const ratingFiltersActive = minRating > 0 || maxWorkload < 5;
+      
+      // First, filter by non-rating filters (department, prerequisites, credits)
+      let baseFiltered = courses.filter(course => {
         const matchesDepartment = selectedDepartments.length === 0 || selectedDepartments.includes(course.department);
-        const matchesRating = course.rating >= minRating;
-        const matchesWorkload = course.workload <= maxWorkload;
         const matchesPrereq = prerequisiteFilter === 'all' || 
                              (prerequisiteFilter === 'yes' && course.prerequisites.length > 0) ||
                              (prerequisiteFilter === 'no' && course.prerequisites.length === 0);
         const matchesCredits = selectedCredits.length === 0 || selectedCredits.includes(course.credits);
         
-        return matchesDepartment && matchesRating && matchesWorkload && matchesPrereq && matchesCredits;
+        return matchesDepartment && matchesPrereq && matchesCredits;
       });
+
+      // If rating filters are active, handle courses with/without ratings like Browse courses
+      if (ratingFiltersActive) {
+        const withRatings: Course[] = [];
+        const withoutRatings: Course[] = [];
+        
+        baseFiltered.forEach(course => {
+          const reviews = allReviewsByCourse[course.id] || [];
+          const hasRatings = reviews.length > 0;
+          
+          if (hasRatings) {
+            const stats = getCourseStats(course);
+            if (stats.rating >= minRating && stats.workload <= maxWorkload) {
+              withRatings.push(course);
+            }
+          } else {
+            // Course doesn't have ratings - always include it (will be shown after courses with ratings)
+            withoutRatings.push(course);
+          }
+        });
+        
+        // Sort courses with ratings by rating
+        withRatings.sort((a, b) => {
+          const statsA = getCourseStats(a);
+          const statsB = getCourseStats(b);
+          return statsB.rating - statsA.rating;
+        });
+        
+        // Sort courses without ratings alphabetically
+        withoutRatings.sort((a, b) => a.code.localeCompare(b.code));
+        
+        courses = [...withRatings, ...withoutRatings];
+      } else {
+        // No rating filters - sort alphabetically
+        courses = baseFiltered.sort((a, b) => a.code.localeCompare(b.code));
+      }
 
       // If a slot is selected, filter for courses that match that time
       if (selectedSlot) {
@@ -486,11 +626,11 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-8">
               <div>
-                <p className="text-sm text-muted-foreground mb-1">Enrolled Credits</p>
-                <p className="text-3xl" style={{ color: '#990000' }}>{enrolledCredits}</p>
+                <p className="text-sm font-semibold text-muted-foreground mb-1">Enrolled Credits</p>
+                <p className="text-3xl font-bold" style={{ color: '#990000' }}>{enrolledCredits}</p>
               </div>
               <div>
-                <p className="text-sm text-muted-foreground mb-1">Target Credits</p>
+                <p className="text-sm font-semibold text-muted-foreground mb-1">Target Credits</p>
                 {isEditingTarget ? (
                   <div className="flex items-center gap-2">
                     <Input
@@ -503,7 +643,7 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
                           setIsEditingTarget(false);
                         }
                       }}
-                      className="w-20"
+                      className="w-20 font-bold"
                       min="0"
                       max="24"
                     />
@@ -520,7 +660,7 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
                   </div>
                 ) : (
                   <div className="flex items-center gap-2">
-                    <p className="text-3xl">{targetCredits}</p>
+                    <p className="text-3xl font-bold">{targetCredits}</p>
                     <Button 
                       size="sm" 
                       variant="ghost"
@@ -535,9 +675,9 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
                 )}
               </div>
               <div>
-                <p className="text-sm text-muted-foreground mb-1">Remaining to Target</p>
+                <p className="text-sm font-semibold text-muted-foreground mb-1">Remaining to Target</p>
                 <p 
-                  className="text-3xl"
+                  className="text-3xl font-bold"
                   style={{ color: remainingCredits >= 0 ? '#FFCC00' : '#d4183d' }}
                 >
                   {remainingCredits > 0 ? '+' : ''}{remainingCredits}
@@ -556,48 +696,75 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
               <CardTitle>Weekly Schedule</CardTitle>
               <CardDescription>
                 {calendarCourses.length === 0 
-                  ? 'Your calendar is empty. Browse courses to get started.' 
+                  ? 'Your calendar is empty. Browse courses or select time slots below to get started.' 
                   : `${calendarCourses.length} course${calendarCourses.length > 1 ? 's' : ''} added`
                 }
               </CardDescription>
             </CardHeader>
             <CardContent className="p-4">
               <div className="overflow-x-auto">
-                <div className="grid grid-cols-6 gap-1 min-w-[700px]">
+                <div className="grid grid-cols-6 min-w-[700px] border border-gray-300">
                   {/* Header Row */}
-                  <div className="text-sm p-2">Time</div>
-                  {days.map((day) => (
-                    <div key={day} className="text-sm p-2 border-b text-center">
+                  <div className="text-sm p-2 border-r border-b border-gray-300">Time</div>
+                  {days.map((day, index) => (
+                    <div 
+                      key={day} 
+                      className={`text-sm p-2 border-b border-gray-300 text-center ${index < days.length - 1 ? 'border-r' : ''}`}
+                    >
                       {day}
                     </div>
                   ))}
 
                   {/* Time Slots */}
-                  {timeSlots.map((time) => (
+                  {timeSlots.map((time, timeIndex) => (
                     <React.Fragment key={time}>
-                      <div className="text-xs text-muted-foreground p-2 border-r text-right">
+                      <div className={`text-xs text-muted-foreground p-2 border-r border-b border-gray-300 text-right ${timeIndex === timeSlots.length - 1 ? 'border-b-0' : ''}`}>
                         {time}
                       </div>
-                      {days.map((day) => {
+                      {days.map((day, dayIndex) => {
                         const slotCourse = getSlotCourse(day, time);
                         const isOccupied = isSlotOccupied(day, time);
                         const isSelected = selectedSlot?.day === day && selectedSlot?.time === time;
+                        const isFirstBlock = slotCourse ? isFirstBlockOfCourse(day, time, slotCourse) : false;
+                        const blockAboveSameCourse = slotCourse ? hasBlockAbove(day, time, slotCourse) : false;
+                        
+                        // Determine border classes - shared borders between cells
+                        let borderClasses = '';
+                        // Always show right border except for last column
+                        if (dayIndex < days.length - 1) {
+                          borderClasses += 'border-r ';
+                        }
+                        // Show bottom border except for last row
+                        if (timeIndex < timeSlots.length - 1) {
+                          borderClasses += 'border-b ';
+                        }
+                        borderClasses += 'border-gray-300';
+                        
+                        // Determine background color
+                        let bgColor = '';
+                        if (isOccupied) {
+                          bgColor = 'bg-blue-100';
+                        } else if (isSelected) {
+                          bgColor = 'bg-yellow-100';
+                        } else {
+                          bgColor = 'hover:bg-gray-50';
+                        }
                         
                         return (
                           <div
                             key={`${day}-${time}`}
-                            className={`p-2 border min-h-[60px] transition-colors ${
+                            className={`p-2 ${borderClasses} ${bgColor} min-h-[60px] transition-colors ${
                               isOccupied 
-                                ? 'bg-blue-100 border-blue-500 cursor-default'
-                                : isSelected
-                                ? 'bg-yellow-100 border-yellow-500 cursor-pointer'
-                                : 'hover:bg-gray-50 cursor-pointer border-gray-200'
+                                ? 'cursor-default'
+                                : 'cursor-pointer'
                             }`}
                             onClick={() => handleSlotClick(day, time)}
                           >
-                            {slotCourse?.course && (
+                            {slotCourse?.course && isFirstBlock && (
                               <div className="text-xs relative group">
-                                <div className="font-medium text-blue-900">{slotCourse.course.code}</div>
+                                <div className="font-medium text-blue-900">
+                                  {slotCourse.course.code} - {slotCourse.course.title}
+                                </div>
                                 {onRemoveFromCalendar && (
                                   <button
                                     onClick={(e) => {
@@ -631,32 +798,42 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
 
         {/* Right Sidebar - Filters and Available Courses */}
         <div className="lg:col-span-4 space-y-4">
-          {/* Filters */}
+          {/* Filters - Collapsible */}
           <Card className="border-2" style={{ borderColor: '#FFCC00' }}>
-            <CardHeader className="pb-4" style={{ backgroundColor: 'rgba(153, 0, 0, 0.05)' }}>
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-lg font-bold" style={{ color: '#990000' }}>
-                  🔍 Filters
-                </CardTitle>
-                {activeFiltersCount > 0 && (
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    onClick={clearFilters}
-                    className="text-xs"
-                    style={{ color: '#990000', border: '1px solid #FFCC00' }}
-                  >
-                    Clear All
-                  </Button>
-                )}
-              </div>
-              {activeFiltersCount > 0 && (
-                <CardDescription className="text-sm font-medium" style={{ color: '#990000' }}>
-                  {activeFiltersCount} filter{activeFiltersCount !== 1 ? 's' : ''} active
-                </CardDescription>
-              )}
-            </CardHeader>
-            <CardContent className="space-y-6">
+            <Collapsible open={filtersExpanded} onOpenChange={setFiltersExpanded}>
+              <CollapsibleTrigger asChild>
+                <CardHeader className="pb-4 cursor-pointer hover:bg-gray-50 transition-colors" style={{ backgroundColor: 'rgba(153, 0, 0, 0.05)' }}>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-lg font-bold" style={{ color: '#990000' }}>
+                      🔍 Filters
+                    </CardTitle>
+                    <div className="flex items-center gap-2">
+                      {activeFiltersCount > 0 && (
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            clearFilters();
+                          }}
+                          className="text-xs"
+                          style={{ color: '#990000', border: '1px solid #FFCC00' }}
+                        >
+                          Clear All
+                        </Button>
+                      )}
+                      <ChevronDown className={`h-4 w-4 transition-transform ${filtersExpanded ? 'transform rotate-180' : ''}`} style={{ color: '#990000' }} />
+                    </div>
+                  </div>
+                  {activeFiltersCount > 0 && (
+                    <CardDescription className="text-sm font-medium" style={{ color: '#990000' }}>
+                      {activeFiltersCount} filter{activeFiltersCount !== 1 ? 's' : ''} active
+                    </CardDescription>
+                  )}
+                </CardHeader>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <CardContent className="space-y-6">
               {/* School/Department */}
               <div>
                 <Label className="mb-3 block font-semibold" style={{ color: '#990000' }}>
@@ -768,7 +945,9 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
                   ))}
                 </div>
               </div>
-            </CardContent>
+                </CardContent>
+              </CollapsibleContent>
+            </Collapsible>
           </Card>
 
           {/* Available Courses */}
@@ -789,12 +968,13 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
             </CardHeader>
             <CardContent>
               <div className="space-y-3 max-h-[500px] overflow-y-auto">
-                {filteredCourses.length === 0 ? (
+                {!selectedSlot ? (
                   <div className="text-center py-8 text-sm text-muted-foreground">
-                    {selectedSlot 
-                      ? 'No courses available for this time slot with current filters'
-                      : 'Select a time slot to see available courses'
-                    }
+                    Select time slots on the calendar to see courses available at that time
+                  </div>
+                ) : filteredCourses.length === 0 ? (
+                  <div className="text-center py-8 text-sm text-muted-foreground">
+                    No courses available for this time slot with current filters
                   </div>
                 ) : (
                   filteredCourses.map((course) => (
@@ -813,7 +993,13 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
                             <Badge variant="secondary" className="text-xs">{course.credits}</Badge>
                           </div>
                           <p className="text-xs text-muted-foreground line-clamp-1">{course.title}</p>
-                          <p className="text-xs text-muted-foreground">{course.professor}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {course.professors && course.professors.length > 0 
+                              ? (course.professors.length > 1 
+                                  ? `${course.professors.join(', ')}`
+                                  : course.professors[0])
+                              : course.professor}
+                          </p>
                         </div>
                         <div className="flex items-center gap-2">
                           <button
@@ -823,14 +1009,18 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
                             <Heart className={`h-4 w-4 ${isFavorited(course.id) ? 'fill-current' : ''}`} />
                           </button>
                           <div className="text-xs">
-                            ★ {course.rating.toFixed(1)}
+                            ★ {getCourseStats(course).rating.toFixed(1)}
                           </div>
                         </div>
                       </div>
                       
                       <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
-                        <span>{course.schedule}</span>
-                        <span>Work: {course.workload.toFixed(1)}</span>
+                        <span>{course.schedules && course.schedules.length > 0 
+                          ? (course.schedules.length > 1 
+                              ? `${course.schedules.length} timeslots`
+                              : course.schedules[0])
+                          : course.schedule}</span>
+                        <span>Work: {getCourseStats(course).workload.toFixed(1)}</span>
                       </div>
 
                       {course.conflicts && (
@@ -848,15 +1038,28 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
                         style={!course.conflicts && selectedSlot ? { backgroundColor: '#990000', color: 'white' } : {}}
                         onClick={() => {
                           if (onAddToCalendar && !course.conflicts && selectedSlot) {
-                            // Find which schedule line matches the selected time slot
-                            const matchingSchedule = findMatchingSchedule(course, selectedSlot.day, selectedSlot.time);
-                            const wasAdded = onAddToCalendar(course, matchingSchedule || undefined);
-                            if (wasAdded) {
-                              const scheduleDisplay = matchingSchedule || course.schedule;
-                              toast.success(`Added ${course.code} (${scheduleDisplay}) to your calendar!`);
-                              setSelectedSlot(null);
+                            // Check if course has multiple schedules
+                            const availableSchedules = (course.schedules && course.schedules.length > 0) 
+                              ? course.schedules 
+                              : (course.schedule ? [course.schedule] : []);
+                            
+                            // If multiple schedules, show dialog to select one
+                            if (availableSchedules.length > 1) {
+                              setSelectedCourseForTimeslot(course);
+                              // Find which schedule line matches the selected time slot as default
+                              const matchingSchedule = findMatchingSchedule(course, selectedSlot.day, selectedSlot.time);
+                              setSelectedScheduleForDialog(matchingSchedule || availableSchedules[0]);
+                              setTimeslotDialogOpen(true);
+                            } else {
+                              // Single schedule - add directly
+                              const schedule = availableSchedules[0];
+                              const wasAdded = onAddToCalendar(course, schedule);
+                              if (wasAdded) {
+                                toast.success(`Added ${course.code} (${schedule}) to your calendar!`);
+                                setSelectedSlot(null);
                             } else {
                               toast.info(`${course.code} is already in your calendar`);
+                              }
                             }
                           }
                         }}
@@ -871,6 +1074,66 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
           </Card>
         </div>
       </div>
+
+      {/* Timeslot Selection Dialog for Calendar View */}
+      <Dialog open={timeslotDialogOpen} onOpenChange={setTimeslotDialogOpen}>
+        <DialogContent className="bg-white border-2 border-gray-300 shadow-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-gray-900">Select Timeslot</DialogTitle>
+            <DialogDescription className="text-base text-gray-700">
+              {selectedCourseForTimeslot && (
+                <p className="mt-2">
+                  <span className="font-semibold text-gray-900">{selectedCourseForTimeslot.code}</span> has multiple timeslots. Please select which one you'd like to add to your calendar.
+                </p>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          {selectedCourseForTimeslot && (
+            <div className="space-y-4 mt-4">
+              <Select value={selectedScheduleForDialog} onValueChange={setSelectedScheduleForDialog}>
+                <SelectTrigger className="border-gray-300">
+                  <SelectValue placeholder="Select a timeslot" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(selectedCourseForTimeslot.schedules && selectedCourseForTimeslot.schedules.length > 0 
+                    ? selectedCourseForTimeslot.schedules 
+                    : (selectedCourseForTimeslot.schedule ? [selectedCourseForTimeslot.schedule] : [])
+                  ).map((schedule, index) => (
+                    <SelectItem key={index} value={schedule}>
+                      {schedule}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          <DialogFooter className="mt-6">
+            <Button variant="outline" onClick={() => {
+              setTimeslotDialogOpen(false);
+              setSelectedCourseForTimeslot(null);
+              setSelectedScheduleForDialog('');
+            }}>
+              Cancel
+            </Button>
+            <Button onClick={() => {
+              if (selectedCourseForTimeslot && selectedScheduleForDialog && onAddToCalendar) {
+                const wasAdded = onAddToCalendar(selectedCourseForTimeslot, selectedScheduleForDialog);
+                if (wasAdded) {
+                  toast.success(`Added ${selectedCourseForTimeslot.code} (${selectedScheduleForDialog}) to your calendar!`);
+                  setSelectedSlot(null);
+                } else {
+                  toast.info(`${selectedCourseForTimeslot.code} is already in your calendar`);
+                }
+              }
+              setTimeslotDialogOpen(false);
+              setSelectedCourseForTimeslot(null);
+              setSelectedScheduleForDialog('');
+            }} style={{ backgroundColor: '#990000', color: 'white' }} className="hover:opacity-90">
+              Add to Calendar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
