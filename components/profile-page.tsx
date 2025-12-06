@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
+import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious, PaginationEllipsis } from './ui/pagination';
 import { User, BookOpen, Heart, CheckCircle, Edit2, LogOut, Plus, X, Search, Eye } from 'lucide-react';
 import { Course, mockCourses } from '../course-data';
 import { userDatabase } from './user-data';
@@ -59,6 +60,8 @@ export function ProfilePage({
   const [completedCreditsInput, setCompletedCreditsInput] = useState(totalCreditsTaken.toString());
   const [showCourseSelector, setShowCourseSelector] = useState(false);
   const [courseSearchQuery, setCourseSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   const handleMajorSave = () => {
     onMajorChange(majorInput);
@@ -120,16 +123,31 @@ export function ProfilePage({
   const totalCreditsRequired = targetCredits - totalCreditsTaken;
   const completedCourseCodes = courseHistory.map(item => item.course.code.toLowerCase());
   const normalizedSearchQuery = normalizeCourseCode(courseSearchQuery);
-  const availableCourses = deduplicatedCourses.filter(course => 
-    !completedCourseCodes.includes(course.code.toLowerCase()) &&
-    (courseSearchQuery === '' || 
-     course.code.toLowerCase().includes(courseSearchQuery.toLowerCase()) ||
-     normalizeCourseCode(course.code).includes(normalizedSearchQuery) ||
-     course.title.toLowerCase().includes(courseSearchQuery.toLowerCase()) ||
-     (course.professors && course.professors.length > 0 
-       ? course.professors.some(p => p.toLowerCase().includes(courseSearchQuery.toLowerCase()))
-       : course.professor.toLowerCase().includes(courseSearchQuery.toLowerCase())))
-  );
+  
+  // Filter available courses based on search query
+  const filteredAvailableCourses = useMemo(() => {
+    return deduplicatedCourses.filter(course => 
+      !completedCourseCodes.includes(course.code.toLowerCase()) &&
+      (courseSearchQuery === '' || 
+       course.code.toLowerCase().includes(courseSearchQuery.toLowerCase()) ||
+       normalizeCourseCode(course.code).includes(normalizedSearchQuery) ||
+       course.title.toLowerCase().includes(courseSearchQuery.toLowerCase()) ||
+       (course.professors && course.professors.length > 0 
+         ? course.professors.some(p => p.toLowerCase().includes(courseSearchQuery.toLowerCase()))
+         : course.professor.toLowerCase().includes(courseSearchQuery.toLowerCase())))
+    );
+  }, [deduplicatedCourses, completedCourseCodes, courseSearchQuery, normalizedSearchQuery]);
+
+  // Reset to page 1 when search query changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [courseSearchQuery]);
+
+  // Calculate pagination
+  const totalPages = Math.ceil(filteredAvailableCourses.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedCourses = filteredAvailableCourses.slice(startIndex, endIndex);
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -334,8 +352,9 @@ export function ProfilePage({
                   />
                 </div>
 
-                <div className="grid gap-2 max-h-64 overflow-y-auto">
-                  {availableCourses.map((course) => (
+                <div className="space-y-4">
+                  <div className="grid gap-2 max-h-64 overflow-y-auto">
+                    {paginatedCourses.map((course) => (
                     <div
                       key={course.id}
                       className="flex items-center justify-between p-3 border rounded-lg hover:bg-white cursor-pointer transition-colors"
@@ -374,12 +393,78 @@ export function ProfilePage({
                         Add
                       </Button>
                     </div>
-                  ))}
-                  {availableCourses.length === 0 && courseSearchQuery === '' && (
-                    <p className="text-muted-foreground text-center py-4">All available courses have been added to your history.</p>
-                  )}
-                  {availableCourses.length === 0 && courseSearchQuery !== '' && (
-                    <p className="text-muted-foreground text-center py-4">No courses found matching "{courseSearchQuery}".</p>
+                    ))}
+                    {paginatedCourses.length === 0 && courseSearchQuery === '' && (
+                      <p className="text-muted-foreground text-center py-4">All available courses have been added to your history.</p>
+                    )}
+                    {paginatedCourses.length === 0 && courseSearchQuery !== '' && (
+                      <p className="text-muted-foreground text-center py-4">No courses found matching "{courseSearchQuery}".</p>
+                    )}
+                  </div>
+                  
+                  {/* Pagination */}
+                  {filteredAvailableCourses.length > itemsPerPage && (
+                    <div className="flex items-center justify-between pt-2 border-t">
+                      <p className="text-sm text-muted-foreground">
+                        Showing {startIndex + 1}-{Math.min(endIndex, filteredAvailableCourses.length)} of {filteredAvailableCourses.length} courses
+                      </p>
+                      <Pagination>
+                        <PaginationContent>
+                          <PaginationItem>
+                            <PaginationPrevious 
+                              onClick={() => {
+                                if (currentPage > 1) {
+                                  setCurrentPage(currentPage - 1);
+                                }
+                              }}
+                              className={currentPage === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                            />
+                          </PaginationItem>
+                          
+                          {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                            let pageNum;
+                            if (totalPages <= 5) {
+                              pageNum = i + 1;
+                            } else if (currentPage <= 3) {
+                              pageNum = i + 1;
+                            } else if (currentPage >= totalPages - 2) {
+                              pageNum = totalPages - 4 + i;
+                            } else {
+                              pageNum = currentPage - 2 + i;
+                            }
+                            
+                            return (
+                              <PaginationItem key={pageNum}>
+                                <PaginationLink
+                                  onClick={() => setCurrentPage(pageNum)}
+                                  isActive={currentPage === pageNum}
+                                  className="cursor-pointer"
+                                >
+                                  {pageNum}
+                                </PaginationLink>
+                              </PaginationItem>
+                            );
+                          })}
+                          
+                          {totalPages > 5 && currentPage < totalPages - 2 && (
+                            <PaginationItem>
+                              <PaginationEllipsis />
+                            </PaginationItem>
+                          )}
+                          
+                          <PaginationItem>
+                            <PaginationNext 
+                              onClick={() => {
+                                if (currentPage < totalPages) {
+                                  setCurrentPage(currentPage + 1);
+                                }
+                              }}
+                              className={currentPage === totalPages ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                            />
+                          </PaginationItem>
+                        </PaginationContent>
+                      </Pagination>
+                    </div>
                   )}
                 </div>
               </div>

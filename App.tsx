@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Button } from './components/ui/button';
 import { LandingPage } from './components/landing-page';
 import { CourseBrowser } from './components/course-browser';
@@ -13,9 +13,30 @@ import { Toaster } from './components/ui/sonner';
 import { Course } from './course-data';
 import { userDatabase, UserPreferences } from './components/user-data';
 import { toast } from 'sonner';
+import { GoogleAnalytics, trackPageView } from './components/analytics';
+
+// Helper function to get view from URL hash
+const getViewFromUrl = (): string => {
+  const hash = window.location.hash.replace('#', '');
+  // Valid views
+  const validViews = ['landing', 'login', 'signup', 'browse', 'calendar', 'profile', 'course-detail'];
+  if (hash && validViews.includes(hash)) {
+    return hash;
+  }
+  // Default to landing if no hash or invalid hash
+  return 'landing';
+};
+
+// Helper function to update URL hash
+const updateUrlHash = (view: string) => {
+  if (window.location.hash !== `#${view}`) {
+    window.history.pushState({ view }, '', `#${view}`);
+  }
+};
 
 export default function App() {
-  const [currentView, setCurrentView] = useState('landing');
+  // Initialize currentView from URL
+  const [currentView, setCurrentView] = useState(() => getViewFromUrl());
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [calendarCourses, setCalendarCourses] = useState<Course[]>([]);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -30,6 +51,13 @@ export default function App() {
   const [courseSelectedSchedules, setCourseSelectedSchedules] = useState<Record<string, string>>({}); // courseId -> selected schedule string
   const [initialTab, setInitialTab] = useState<string>('overview'); // Track which tab to open in course detail
   const [savedSearchQuery, setSavedSearchQuery] = useState<string>(''); // Save search query when navigating to course detail
+
+  // Initialize URL hash on first load if not present
+  useEffect(() => {
+    if (!window.location.hash) {
+      updateUrlHash('landing');
+    }
+  }, []);
 
   // Check for existing user on app load and load preferences
   useEffect(() => {
@@ -113,6 +141,43 @@ export default function App() {
     setUserReviews({}); // Reset user reviews
     setCurrentView('landing');
   };
+
+  // Sync URL hash with currentView and handle browser back/forward buttons
+  useEffect(() => {
+    // Update URL hash when view changes
+    updateUrlHash(currentView);
+    
+    // Track page views when view changes
+    const path = window.location.pathname + window.location.search + window.location.hash;
+    trackPageView(path);
+  }, [currentView]);
+
+  // Listen for browser back/forward button clicks (popstate event)
+  useEffect(() => {
+    const handlePopState = () => {
+      const view = getViewFromUrl();
+      if (view !== currentView) {
+        setCurrentView(view);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    
+    // Also handle hashchange for direct hash navigation
+    const handleHashChange = () => {
+      const view = getViewFromUrl();
+      if (view !== currentView) {
+        setCurrentView(view);
+      }
+    };
+
+    window.addEventListener('hashchange', handleHashChange);
+    
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('hashchange', handleHashChange);
+    };
+  }, [currentView]);
 
   // Save preferences whenever they change (only if user is logged in)
   useEffect(() => {
@@ -512,6 +577,7 @@ export default function App() {
   if (currentView === 'landing' || currentView === 'login') {
     return (
       <>
+        <GoogleAnalytics />
         {renderCurrentView()}
         <Toaster />
       </>
@@ -520,6 +586,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-background">
+      <GoogleAnalytics />
       {/* Navigation Header */}
       <header className="border-b bg-white sticky top-0 z-50 shadow-lg" style={{ backgroundColor: '#ffffff' }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -603,6 +670,7 @@ export default function App() {
         {renderCurrentView()}
       </main>
       
+      <GoogleAnalytics />
       <Toaster />
     </div>
   );
