@@ -25,8 +25,7 @@ export function LandingPage({ onGetStarted, onStartPlanning }: LandingPageProps)
               Fight On for Course Planning!
             </p>
             <p className="text-lg text-muted-foreground max-w-2xl mx-auto leading-relaxed mt-6">
-              Navigate USC's course catalog with confidence. Get authentic student reviews, 
-              access syllabus archives, and build your perfect schedule with intelligent planning tools.
+              Navigate USC's course catalog with confidence. Get authentic student reviews, access syllabus archives, and build your perfect schedule with timeslot calendar planning.
             </p>
           </div>
           

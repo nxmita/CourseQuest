@@ -29,6 +29,7 @@ export default function App() {
   const [allReviewsByCourse, setAllReviewsByCourse] = useState<Record<string, any[]>>({});
   const [courseSelectedSchedules, setCourseSelectedSchedules] = useState<Record<string, string>>({}); // courseId -> selected schedule string
   const [initialTab, setInitialTab] = useState<string>('overview'); // Track which tab to open in course detail
+  const [savedSearchQuery, setSavedSearchQuery] = useState<string>(''); // Save search query when navigating to course detail
 
   // Check for existing user on app load and load preferences
   useEffect(() => {
@@ -215,7 +216,12 @@ export default function App() {
       case 'browse':
         return (
           <CourseBrowser 
-            onCourseSelect={(course) => {
+            initialSearchQuery={savedSearchQuery}
+            onCourseSelect={(course, currentSearchQuery) => {
+              // Save the current search query before navigating to course detail
+              if (currentSearchQuery !== undefined) {
+                setSavedSearchQuery(currentSearchQuery);
+              }
               setSelectedCourse(course);
               setInitialTab('overview'); // Default to overview tab
               // Load reviews from global storage
@@ -298,7 +304,10 @@ export default function App() {
         return (
           <CourseDetail 
             course={selectedCourse!}
-            onBack={() => setCurrentView('browse')}
+            onBack={() => {
+              setCurrentView('browse');
+              // Keep the saved search query so it's restored when CourseBrowser mounts
+            }}
             calendarCourses={calendarCourses}
             onAddToCalendar={(course, selectedSchedule) => {
               setCalendarCourses(prev => {

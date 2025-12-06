@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Input } from './ui/input';
@@ -15,7 +15,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious, PaginationEllipsis } from './ui/pagination';
 
 interface CourseBrowserProps {
-  onCourseSelect: (course: Course) => void;
+  onCourseSelect: (course: Course, currentSearchQuery?: string) => void;
   calendarCourses?: Course[];
   onAddToCalendar?: (course: Course, selectedSchedule?: string) => boolean;
   onRemoveFromCalendar?: (courseId: string) => void;
@@ -24,6 +24,7 @@ interface CourseBrowserProps {
   onToggleFavorite?: (course: Course) => void;
   allReviewsByCourse?: Record<string, any[]>;
   courseSelectedSchedules?: Record<string, string>;
+  initialSearchQuery?: string; // Initial search query to restore when navigating back
 }
 
 // Helper function to parse schedule (copied from calendar-view.tsx)
@@ -151,7 +152,7 @@ const timesOverlap = (start1: string, end1: string, start2: string, end2: string
   return start1Min < end2Min && start2Min < end1Min;
 };
 
-export function CourseBrowser({ onCourseSelect, calendarCourses = [], onAddToCalendar, onRemoveFromCalendar, onReplaceCourse, favoritedCourses = [], onToggleFavorite, allReviewsByCourse = {}, courseSelectedSchedules = {} }: CourseBrowserProps) {
+export function CourseBrowser({ onCourseSelect, calendarCourses = [], onAddToCalendar, onRemoveFromCalendar, onReplaceCourse, favoritedCourses = [], onToggleFavorite, allReviewsByCourse = {}, courseSelectedSchedules = {}, initialSearchQuery = '', onSearchQueryChange }: CourseBrowserProps) {
   const [timeslotDialogOpen, setTimeslotDialogOpen] = useState(false);
   const [selectedCourseForTimeslot, setSelectedCourseForTimeslot] = useState<Course | null>(null);
   const [selectedSchedule, setSelectedSchedule] = useState<string>('');
@@ -159,8 +160,18 @@ export function CourseBrowser({ onCourseSelect, calendarCourses = [], onAddToCal
   const [conflictCourse, setConflictCourse] = useState<Course | null>(null);
   const [conflictNewCourse, setConflictNewCourse] = useState<Course | null>(null);
   const [conflictSelectedSchedule, setConflictSelectedSchedule] = useState<string>('');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [selectedDepartments, setSelectedDepartments] = useState<string[]>([]);
+  
+  // Sync initialSearchQuery prop with state when it changes
+  useEffect(() => {
+    if (initialSearchQuery !== undefined) {
+      setSearchQuery(initialSearchQuery);
+    }
+  }, [initialSearchQuery]);
+  
+  // Note: We don't need to save on every change anymore since we pass it when selecting a course
   const [minRating, setMinRating] = useState(0);
   const [maxWorkload, setMaxWorkload] = useState(5);
   const [prerequisiteFilter, setPrerequisiteFilter] = useState<'all' | 'yes' | 'no'>('all');
@@ -798,10 +809,28 @@ export function CourseBrowser({ onCourseSelect, calendarCourses = [], onAddToCal
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
+                    ref={searchInputRef}
                     placeholder="Search courses, professors, or course codes..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-10"
+                    onKeyDown={(e) => {
+                      // Allow Cmd+A / Ctrl+A to select all text
+                      if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
+                        e.preventDefault();
+                        searchInputRef.current?.select();
+                      }
+                      // Allow Delete/Backspace to work on selected text
+                      if ((e.key === 'Delete' || e.key === 'Backspace') && searchInputRef.current?.selectionStart === searchInputRef.current?.selectionEnd) {
+                        // If no text is selected, allow normal behavior
+                        return;
+                      }
+                    }}
+                    onFocus={(e) => {
+                      // Select all text when focused (optional - user can click to position cursor)
+                      // Uncomment the line below if you want auto-select-all on focus
+                      // e.target.select();
+                    }}
+                    className="pl-10 selection:bg-blue-200 selection:text-blue-900"
                   />
                 </div>
               </div>
@@ -833,7 +862,7 @@ export function CourseBrowser({ onCourseSelect, calendarCourses = [], onAddToCal
               <Card 
                 key={course.id} 
                 className="hover:shadow-lg transition-shadow cursor-pointer"
-                onClick={() => onCourseSelect(course)}
+                onClick={() => onCourseSelect(course, searchQuery)}
               >
                 <CardContent className="p-6">
                   <div className="flex justify-between items-start mb-3">
