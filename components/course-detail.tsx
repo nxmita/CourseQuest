@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
@@ -14,7 +14,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from './ui/alert-dialog';
 import { ArrowLeft, Star, Clock, Users, Download, Plus, BookOpen, MessageCircle, Upload, FileText, CheckCircle, X, AlertCircle, Heart } from 'lucide-react';
 import { toast } from "sonner";
-import { Course, Review, mockReviews, mockCourses } from './course-data';
+import { Course, Review, mockReviews, mockCourses } from '../course-data';
+import { userDatabase } from './user-data';
 
 interface CourseDetailProps {
   course: Course;
@@ -33,6 +34,7 @@ interface CourseDetailProps {
   setLocalReviews?: (reviews: any[]) => void;
   onReviewsUpdate?: (courseId: string, reviews: any[]) => void;
   courseSelectedSchedules?: Record<string, string>;
+  initialTab?: string; // Optional prop to set initial tab
 }
 
 interface SyllabusUpload {
@@ -48,7 +50,22 @@ interface SyllabusUpload {
 
 const syllabusArchive: any[] = [];
 
-export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCalendar, onRemoveFromCalendar, onReplaceCourse, isLoggedIn = false, isFavorited = false, onToggleFavorite, onReviewSubmit, onReviewDelete, username, localReviews = [], setLocalReviews, onReviewsUpdate, courseSelectedSchedules = {} }: CourseDetailProps) {
+export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCalendar, onRemoveFromCalendar, onReplaceCourse, isLoggedIn = false, isFavorited = false, onToggleFavorite, onReviewSubmit, onReviewDelete, username, localReviews = [], setLocalReviews, onReviewsUpdate, courseSelectedSchedules = {}, initialTab = 'overview' }: CourseDetailProps) {
+  // Early validation - must be FIRST before any hooks that use course properties
+  if (!course || !course.id || !course.code || !course.title) {
+    return (
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="text-center py-8">
+          <p className="text-lg text-muted-foreground">Invalid course data</p>
+          <Button onClick={onBack} className="mt-4">
+            Back to Courses
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [timeslotDialogOpen, setTimeslotDialogOpen] = useState(false);
   const [selectedSchedule, setSelectedSchedule] = useState<string>('');
   const [conflictDialogOpen, setConflictDialogOpen] = useState(false);
@@ -66,8 +83,6 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
     numPresentations: undefined as number | undefined
   });
 
-  // Use localReviews from props instead of local state
-
   const [syllabusUpload, setSyllabusUpload] = useState({
     semester: '',
     year: '',
@@ -80,6 +95,19 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
   const [actionSuccess, setActionSuccess] = useState(false);
   
   const isInCalendar = calendarCourses.some(c => c.id === course.id);
+
+  // Scroll to top when component mounts
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [course.id]);
+
+  // Load reviews from global storage on mount
+  useEffect(() => {
+    const storedReviews = userDatabase.getReviewsForCourse(course.id);
+    if (setLocalReviews) {
+      setLocalReviews(storedReviews);
+    }
+  }, [course.id, setLocalReviews]);
 
   // Get reviews for this course or use empty array - use only local reviews
   const courseReviews = localReviews;
@@ -442,21 +470,26 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
   };
 
   const handleSubmitReview = () => {
-    if (!isLoggedIn) {
-      toast.error('Please login to post reviews');
-      return;
-    }
-
+    // Allow reviews from anyone (logged in or not)
     if (!newReview.comment.trim()) {
       toast.error('Please write a review comment');
       return;
     }
 
-    const overall = ((newReview.difficulty + newReview.workload + newReview.learningGain) / 3);
+    // Check if user already has a review for this course
+    if (userDatabase.hasUserReviewedCourse(course.id)) {
+      toast.error('You can only write one review per course. Please delete your existing review first.');
+      return;
+    }
+
+    // Invert difficulty and workload (1=5, 2=4, 3=3, 4=2, 5=1), keep learning gain as is
+    const invertedDifficulty = 6 - newReview.difficulty;
+    const invertedWorkload = 6 - newReview.workload;
+    const overall = ((invertedDifficulty + invertedWorkload + newReview.learningGain) / 3);
     
-    const newReviewData: Review = {
-      id: `review-${Date.now()}`,
-      studentName: newReview.isAnonymous ? 'Anonymous Trojan' : (username || 'Current User'),
+    const newReviewData = {
+      courseId: course.id,
+      studentName: newReview.isAnonymous ? 'Anonymous Trojan' : (username || 'Anonymous User'),
       isAnonymous: newReview.isAnonymous,
       semester: 'Fall 2024',
       difficulty: newReview.difficulty,
@@ -471,35 +504,43 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
       numPresentations: newReview.numPresentations
     };
 
-    // Add to local reviews at the top
-    const updatedReviews = [newReviewData, ...localReviews];
-    if (setLocalReviews) {
-      setLocalReviews(updatedReviews);
-    }
-    
-    // Update all reviews by course
-    if (onReviewsUpdate) {
-      onReviewsUpdate(course.id, updatedReviews);
-    }
+    try {
+      // Save to global storage
+      const savedReview = userDatabase.addReview(newReviewData);
+      
+      // Reload reviews from storage to get the latest
+      const updatedReviews = userDatabase.getReviewsForCourse(course.id);
+      if (setLocalReviews) {
+        setLocalReviews(updatedReviews);
+      }
+      
+      // Update all reviews by course
+      if (onReviewsUpdate) {
+        onReviewsUpdate(course.id, updatedReviews);
+      }
 
-    // Call parent handler
-    if (onReviewSubmit) {
-      onReviewSubmit(newReview);
-    }
+      // Call parent handler
+      if (onReviewSubmit) {
+        onReviewSubmit(newReview);
+      }
 
-    toast.success('Your review has been submitted.');
-    
-    setNewReview({
-      difficulty: 3,
-      workload: 3,
-      learningGain: 3,
-      comment: '',
-      isAnonymous: false,
-      numExams: undefined,
-      numQuizzes: undefined,
-      numAssignments: undefined,
-      numPresentations: undefined
-    });
+      toast.success('Your review has been submitted.');
+      
+      setNewReview({
+        difficulty: 3,
+        workload: 3,
+        learningGain: 3,
+        comment: '',
+        isAnonymous: false,
+        numExams: undefined,
+        numQuizzes: undefined,
+        numAssignments: undefined,
+        numPresentations: undefined
+      });
+    } catch (error) {
+      console.error('Error submitting review:', error);
+      toast.error('Failed to submit review. Please try again.');
+    }
   };
 
   // Calculate averages from reviews for difficulty, workload, and learning gain
@@ -509,51 +550,45 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
     return sum / values.length;
   };
 
-  const avgDifficulty = calculateAverage(courseReviews.map(r => r.difficulty));
-  const avgWorkload = calculateAverage(courseReviews.map(r => r.workload));
-  const avgLearningGain = calculateAverage(courseReviews.map(r => r.learningGain));
+  const safeCourseReviews = Array.isArray(courseReviews) ? courseReviews : [];
+  const avgDifficulty = calculateAverage(safeCourseReviews.map(r => r?.difficulty || 0));
+  const avgWorkload = calculateAverage(safeCourseReviews.map(r => r?.workload || 0));
+  const avgLearningGain = calculateAverage(safeCourseReviews.map(r => r?.learningGain || 0));
   
   // Use averages from reviews if available, otherwise use course defaults
-  const displayDifficulty = courseReviews.length > 0 ? avgDifficulty : course.difficulty;
-  const displayWorkload = courseReviews.length > 0 ? avgWorkload : course.workload;
-  const displayLearningGain = courseReviews.length > 0 ? avgLearningGain : course.learningGain;
+  const displayDifficulty = safeCourseReviews.length > 0 ? avgDifficulty : (course.difficulty || 0);
+  const displayWorkload = safeCourseReviews.length > 0 ? avgWorkload : (course.workload || 0);
+  const displayLearningGain = safeCourseReviews.length > 0 ? avgLearningGain : (course.learningGain || 0);
   
-  const overallRating = ((displayDifficulty + displayWorkload + displayLearningGain) / 3).toFixed(1);
+  // Calculate overall rating: invert difficulty and workload (1=5, 2=4, 3=3, 4=2, 5=1), keep learning gain as is
+  const invertedDifficulty = 6 - displayDifficulty;
+  const invertedWorkload = 6 - displayWorkload;
+  const overallRating = ((invertedDifficulty + invertedWorkload + displayLearningGain) / 3).toFixed(1);
 
-  // Calculate mode of values from reviews
-  const calculateMode = (values: (number | undefined)[]): number => {
-    // Filter out undefined values
+  // Get value from reviews: if only one review has a value, use it (even if 0), otherwise return undefined
+  const getSingleReviewValue = (values: (number | undefined)[]): number | undefined => {
+    // Filter out undefined values, but keep 0 values
     const definedValues = values.filter((v): v is number => v !== undefined && v !== null);
     
-    // If no values, return 0
+    // If no values at all, return undefined
     if (definedValues.length === 0) {
-      return 0;
+      return undefined;
     }
     
-    // Count frequency of each value
-    const frequency: { [key: number]: number } = {};
-    definedValues.forEach(value => {
-      frequency[value] = (frequency[value] || 0) + 1;
-    });
+    // If only one review has a value, use it (even if it's 0)
+    if (definedValues.length === 1) {
+      return definedValues[0];
+    }
     
-    // Find the value with highest frequency
-    let maxFreq = 0;
-    let mode = 0;
-    Object.entries(frequency).forEach(([value, freq]) => {
-      if (freq > maxFreq) {
-        maxFreq = freq;
-        mode = parseInt(value);
-      }
-    });
-    
-    return mode;
+    // If multiple reviews have values, return undefined (will show hyphen)
+    return undefined;
   };
 
-  // Calculate mode values from all reviews
-  const modeExams = calculateMode(courseReviews.map(r => r.numExams));
-  const modeQuizzes = calculateMode(courseReviews.map(r => r.numQuizzes));
-  const modeAssignments = calculateMode(courseReviews.map(r => r.numAssignments));
-  const modePresentations = calculateMode(courseReviews.map(r => r.numPresentations));
+  // Get values from reviews
+  const numExams = getSingleReviewValue(safeCourseReviews.map(r => r?.numExams));
+  const numQuizzes = getSingleReviewValue(safeCourseReviews.map(r => r?.numQuizzes));
+  const numAssignments = getSingleReviewValue(safeCourseReviews.map(r => r?.numAssignments));
+  const numPresentations = getSingleReviewValue(safeCourseReviews.map(r => r?.numPresentations));
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -684,7 +719,7 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
       </div>
 
       {/* Tabs Content */}
-      <Tabs defaultValue="overview" className="space-y-6">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="grid w-full grid-cols-3 bg-gray-100">
           <TabsTrigger 
             value="overview"
@@ -736,7 +771,7 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
                 <CardTitle>Course Details</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {course.prerequisites.length > 0 && (
+                {course.prerequisites && Array.isArray(course.prerequisites) && course.prerequisites.length > 0 ? (
                   <div>
                     <h4 className="mb-2 flex items-center gap-2">
                       <AlertCircle className="h-4 w-4 text-amber-600" />
@@ -748,24 +783,32 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
                       ))}
                     </div>
                   </div>
+                ) : (
+                  <div>
+                    <h4 className="mb-2 flex items-center gap-2">
+                      <AlertCircle className="h-4 w-4 text-amber-600" />
+                      Prerequisites
+                    </h4>
+                    <p className="text-muted-foreground">No prerequisites</p>
+                  </div>
                 )}
 
                 <div className="grid grid-cols-4 gap-4 pt-4">
                   <div>
                     <p className="text-sm text-muted-foreground">Exams</p>
-                    <p className="text-xl">{modeExams}</p>
+                    <p className="text-xl">{numExams !== undefined ? numExams : '-'}</p>
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Quizzes</p>
-                    <p className="text-xl">{modeQuizzes}</p>
+                    <p className="text-xl">{numQuizzes !== undefined ? numQuizzes : '-'}</p>
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Assignments</p>
-                    <p className="text-xl">{modeAssignments}</p>
+                    <p className="text-xl">{numAssignments !== undefined ? numAssignments : '-'}</p>
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Presentations</p>
-                    <p className="text-xl">{modePresentations}</p>
+                    <p className="text-xl">{numPresentations !== undefined ? numPresentations : '-'}</p>
                   </div>
                 </div>
               </CardContent>
@@ -781,16 +824,16 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
                 <CardTitle>Write a Review</CardTitle>
                 <CardDescription>
                   Help future students by sharing your experience with this course
-                  {!isLoggedIn && ' (Login required)'}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                {!isLoggedIn && (
-                  <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800">
-                    <AlertCircle className="h-4 w-4" />
-                    <span className="text-sm">Please login to post reviews</span>
+                {userDatabase.hasUserReviewedCourse(course.id) ? (
+                  <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg text-blue-800">
+                    <CheckCircle className="h-4 w-4" />
+                    <span className="text-sm">You have already reviewed this course.</span>
                   </div>
-                )}
+                ) : (
+                  <>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div>
@@ -806,7 +849,7 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
                           min={1}
                           step={1}
                           className="w-full h-8"
-                          disabled={!isLoggedIn}
+                          disabled={userDatabase.hasUserReviewedCourse(course.id)}
                         />
                       </div>
                       <div className="flex items-center justify-between text-sm text-muted-foreground">
@@ -830,7 +873,7 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
                           min={1}
                           step={1}
                           className="w-full h-8"
-                          disabled={!isLoggedIn}
+                          disabled={userDatabase.hasUserReviewedCourse(course.id)}
                         />
                       </div>
                       <div className="flex items-center justify-between text-sm text-muted-foreground">
@@ -854,7 +897,7 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
                           min={1}
                           step={1}
                           className="w-full h-8"
-                          disabled={!isLoggedIn}
+                          disabled={userDatabase.hasUserReviewedCourse(course.id)}
                         />
                       </div>
                       <div className="flex items-center justify-between text-sm text-muted-foreground">
@@ -868,13 +911,13 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
 
                 <div>
                   <label className="block text-sm mb-2">Your Review</label>
-                  <Textarea
-                    placeholder="Share your experience with this course. What did you like? What was challenging? Any tips for future students?"
-                    value={newReview.comment}
-                    onChange={(e) => setNewReview({...newReview, comment: e.target.value})}
-                    className="min-h-32"
-                    disabled={!isLoggedIn}
-                  />
+                    <Textarea
+                      placeholder="Share your experience with this course. What did you like? What was challenging? Any tips for future students?"
+                      value={newReview.comment}
+                      onChange={(e) => setNewReview({...newReview, comment: e.target.value})}
+                      className="min-h-32"
+                      disabled={userDatabase.hasUserReviewedCourse(course.id)}
+                    />
                 </div>
 
                 <div>
@@ -897,7 +940,7 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
                           const value = e.target.value === '' ? undefined : parseInt(e.target.value);
                           setNewReview({...newReview, numExams: value});
                         }}
-                        disabled={!isLoggedIn}
+                        disabled={userDatabase.hasUserReviewedCourse(course.id)}
                         className="mt-1"
                       />
                     </div>
@@ -913,7 +956,7 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
                           const value = e.target.value === '' ? undefined : parseInt(e.target.value);
                           setNewReview({...newReview, numQuizzes: value});
                         }}
-                        disabled={!isLoggedIn}
+                        disabled={userDatabase.hasUserReviewedCourse(course.id)}
                         className="mt-1"
                       />
                     </div>
@@ -929,7 +972,7 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
                           const value = e.target.value === '' ? undefined : parseInt(e.target.value);
                           setNewReview({...newReview, numAssignments: value});
                         }}
-                        disabled={!isLoggedIn}
+                        disabled={userDatabase.hasUserReviewedCourse(course.id)}
                         className="mt-1"
                       />
                     </div>
@@ -945,7 +988,7 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
                           const value = e.target.value === '' ? undefined : parseInt(e.target.value);
                           setNewReview({...newReview, numPresentations: value});
                         }}
-                        disabled={!isLoggedIn}
+                        disabled={userDatabase.hasUserReviewedCourse(course.id)}
                         className="mt-1"
                       />
                     </div>
@@ -957,7 +1000,7 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
                     id="anonymous"
                     checked={newReview.isAnonymous}
                     onCheckedChange={(checked) => setNewReview({...newReview, isAnonymous: checked as boolean})}
-                    disabled={!isLoggedIn}
+                    disabled={userDatabase.hasUserReviewedCourse(course.id)}
                   />
                   <label
                     htmlFor="anonymous"
@@ -969,13 +1012,14 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
 
                 <Button 
                   onClick={handleSubmitReview}
-                  disabled={!isLoggedIn}
                   style={{ backgroundColor: '#990000', color: 'white' }}
                   className="hover:opacity-90"
                 >
                   <MessageCircle className="h-4 w-4 mr-2" />
                   Submit Review
                 </Button>
+                  </>
+                )}
               </CardContent>
             </Card>
 
@@ -1008,14 +1052,33 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
                       <div className="flex items-center gap-2">
                         <StarRating rating={review.overall} />
                         <span className="font-medium">{review.overall}/5</span>
-                        {/* Show delete button only for current user's reviews */}
-                        {isLoggedIn && username && review.studentName === username && (
+                        {/* Show delete button only for reviews the user can delete */}
+                        {userDatabase.canDeleteReview(review.id) && (
                           <Button
                             variant="ghost"
                             size="sm"
                             onClick={() => {
-                              if (onReviewDelete) {
-                                onReviewDelete(course.id, review.id);
+                              try {
+                                const deleted = userDatabase.deleteReview(review.id);
+                                if (deleted) {
+                                  // Reload reviews from storage
+                                  const updatedReviews = userDatabase.getReviewsForCourse(course.id);
+                                  if (setLocalReviews) {
+                                    setLocalReviews(updatedReviews);
+                                  }
+                                  if (onReviewsUpdate) {
+                                    onReviewsUpdate(course.id, updatedReviews);
+                                  }
+                                  if (onReviewDelete) {
+                                    onReviewDelete(course.id, review.id);
+                                  }
+                                  toast.success('Review deleted successfully');
+                                } else {
+                                  toast.error('You can only delete your own reviews');
+                                }
+                              } catch (error) {
+                                console.error('Error deleting review:', error);
+                                toast.error('Failed to delete review');
                               }
                             }}
                             className="text-red-600 hover:text-red-700 hover:bg-red-50"

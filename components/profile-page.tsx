@@ -4,8 +4,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Badge } from './ui/badge';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
-import { User, BookOpen, Heart, CheckCircle, Edit2, LogOut, Plus, X, Search } from 'lucide-react';
-import { Course, mockCourses } from './course-data';
+import { User, BookOpen, Heart, CheckCircle, Edit2, LogOut, Plus, X, Search, Eye } from 'lucide-react';
+import { Course, mockCourses } from '../course-data';
+import { userDatabase } from './user-data';
 
 interface ProfilePageProps {
   username: string;
@@ -380,39 +381,52 @@ export function ProfilePage({
                           </td>
                           <td className="py-3 text-center font-medium">{item.course.credits}</td>
                           <td className="py-3 text-center">
-                            {item.hasReview ? (
-                              <Badge variant="secondary" className="text-xs">Reviewed</Badge>
-                            ) : (
-                              <Badge variant="outline" className="text-xs">Not Reviewed</Badge>
-                            )}
+                            {(() => {
+                              // Check if user has a review for this course from global storage
+                              const hasReview = userDatabase.hasUserReviewedCourse(item.course.id);
+                              return hasReview ? (
+                                <Badge variant="secondary" className="text-xs">Reviewed</Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-xs">Not Reviewed</Badge>
+                              );
+                            })()}
                           </td>
                           <td className="py-3 text-right">
                             <div className="flex items-center gap-2">
-                              {item.hasReview ? (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    onEditReview(item.course);
-                                  }}
-                                >
-                                  <Edit2 className="h-3 w-3 mr-1" />
-                                  Edit Review
-                                </Button>
-                              ) : (
-                                <Button
-                                  size="sm"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    onWriteReview(item.course);
-                                  }}
-                                  style={{ backgroundColor: '#990000', color: 'white' }}
-                                >
-                                  <BookOpen className="h-3 w-3 mr-1" />
-                                  Write Review
-                                </Button>
-                              )}
+                              {(() => {
+                                // Check if user has a review for this course from global storage
+                                const hasReview = userDatabase.hasUserReviewedCourse(item.course.id);
+                                if (hasReview) {
+                                  // Show "View Review" button instead of "Edit Review"
+                                  return (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        onEditReview(item.course);
+                                      }}
+                                    >
+                                      <Eye className="h-3 w-3 mr-1" />
+                                      View Review
+                                    </Button>
+                                  );
+                                } else {
+                                  return (
+                                    <Button
+                                      size="sm"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        onWriteReview(item.course);
+                                      }}
+                                      style={{ backgroundColor: '#990000', color: 'white' }}
+                                    >
+                                      <BookOpen className="h-3 w-3 mr-1" />
+                                      Write Review
+                                    </Button>
+                                  );
+                                }
+                              })()}
                               {onRemoveCompletedCourse && (
                                 <Button
                                   variant="outline"

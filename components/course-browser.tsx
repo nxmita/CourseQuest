@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Input } from './ui/input';
@@ -9,9 +9,10 @@ import { Label } from './ui/label';
 import { Slider } from './ui/slider';
 import { Search, Star, Clock, Users, Plus, X, AlertCircle, CheckCircle2, Heart } from 'lucide-react';
 import { toast } from "sonner";
-import { Course, mockCourses } from './course-data';
+import { Course, mockCourses } from '../course-data';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from './ui/alert-dialog';
+import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious, PaginationEllipsis } from './ui/pagination';
 
 interface CourseBrowserProps {
   onCourseSelect: (course: Course) => void;
@@ -165,6 +166,8 @@ export function CourseBrowser({ onCourseSelect, calendarCourses = [], onAddToCal
   const [prerequisiteFilter, setPrerequisiteFilter] = useState<'all' | 'yes' | 'no'>('all');
   const [selectedCredits, setSelectedCredits] = useState<number[]>([]);
   const [sortBy, setSortBy] = useState('rating');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   const departments = Array.from(new Set(mockCourses.map(c => c.department))).sort();
   const creditOptions = [2, 3, 4];
@@ -361,6 +364,17 @@ export function CourseBrowser({ onCourseSelect, calendarCourses = [], onAddToCal
     return [...withRatings, ...withoutRatings];
   }, [searchQuery, selectedDepartments, minRating, maxWorkload, prerequisiteFilter, selectedCredits, sortBy, getCourseStats, allReviewsByCourse]);
 
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedDepartments, minRating, maxWorkload, prerequisiteFilter, selectedCredits, sortBy]);
+
+  // Calculate pagination
+  const totalPages = Math.ceil(filteredCourses.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedCourses = filteredCourses.slice(startIndex, endIndex);
+
   // Helper function to format prerequisites with course names
   const formatPrerequisite = (prereq: string): string => {
     // Handle complex patterns like "1 from (TAC-265 or ITP-265)" or "TAC-325 and TAC-375"
@@ -545,7 +559,7 @@ export function CourseBrowser({ onCourseSelect, calendarCourses = [], onAddToCal
         const wasAdded = onAddToCalendar(conflictNewCourse, conflictSelectedSchedule);
         if (wasAdded) {
           toast.success(`Replaced ${conflictCourse.code} with ${conflictNewCourse.code} in your calendar!`);
-        }
+      }
       }, 0);
     }
 
@@ -761,12 +775,13 @@ export function CourseBrowser({ onCourseSelect, calendarCourses = [], onAddToCal
 
           {/* Results Count */}
           <div className="mb-4 text-sm text-muted-foreground">
-            Showing {filteredCourses.length} of {mockCourses.length} courses
+            Showing {startIndex + 1}-{Math.min(endIndex, filteredCourses.length)} of {filteredCourses.length} courses
+            {filteredCourses.length !== mockCourses.length && ` (${mockCourses.length} total)`}
           </div>
 
           {/* Course Grid */}
           <div className="grid gap-4">
-            {filteredCourses.map((course) => {
+            {paginatedCourses.map((course) => {
               const stats = getCourseStats(course);
               return (
               <Card 
@@ -797,7 +812,7 @@ export function CourseBrowser({ onCourseSelect, calendarCourses = [], onAddToCal
                       {course.schedules && course.schedules.length > 1 && (
                         <p className="text-xs text-muted-foreground mb-2">
                           {course.schedules.length} timeslots available
-                        </p>
+                      </p>
                       )}
                     </div>
                     
@@ -893,6 +908,103 @@ export function CourseBrowser({ onCourseSelect, calendarCourses = [], onAddToCal
                 </Button>
               </CardContent>
             </Card>
+          )}
+
+          {/* Pagination */}
+          {filteredCourses.length > itemsPerPage && (
+            <div className="mt-8">
+              <Pagination>
+                <PaginationContent>
+                  <PaginationItem>
+                    <PaginationPrevious 
+                      href="#"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        if (currentPage > 1) {
+                          setCurrentPage(currentPage - 1);
+                          window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }
+                      }}
+                      className={currentPage === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                    />
+                  </PaginationItem>
+                  
+                  {(() => {
+                    const pages: React.ReactNode[] = [];
+                    let lastPageAdded = 0;
+                    
+                    const addPage = (page: number) => {
+                      pages.push(
+                        <PaginationItem key={page}>
+                          <PaginationLink
+                            href="#"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              setCurrentPage(page);
+                              window.scrollTo({ top: 0, behavior: 'smooth' });
+                            }}
+                            isActive={currentPage === page}
+                            className="cursor-pointer"
+                          >
+                            {page}
+                          </PaginationLink>
+                        </PaginationItem>
+                      );
+                      lastPageAdded = page;
+                    };
+                    
+                    const addEllipsis = (key: string) => {
+                      pages.push(
+                        <PaginationItem key={key}>
+                          <PaginationEllipsis />
+                        </PaginationItem>
+                      );
+                    };
+                    
+                    // Always show first page
+                    addPage(1);
+                    
+                    // Show ellipsis if there's a gap after page 1
+                    if (currentPage > 3) {
+                      addEllipsis('ellipsis-start');
+                    }
+                    
+                    // Show pages around current page
+                    for (let i = Math.max(2, currentPage - 1); i <= Math.min(totalPages - 1, currentPage + 1); i++) {
+                      if (i !== lastPageAdded) {
+                        addPage(i);
+                      }
+                    }
+                    
+                    // Show ellipsis if there's a gap before last page
+                    if (currentPage < totalPages - 2 && totalPages > 1) {
+                      addEllipsis('ellipsis-end');
+                    }
+                    
+                    // Always show last page (if more than 1 page)
+                    if (totalPages > 1 && totalPages !== lastPageAdded) {
+                      addPage(totalPages);
+                    }
+                    
+                    return pages;
+                  })()}
+                  
+                  <PaginationItem>
+                    <PaginationNext 
+                      href="#"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        if (currentPage < totalPages) {
+                          setCurrentPage(currentPage + 1);
+                          window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }
+                      }}
+                      className={currentPage === totalPages ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                    />
+                  </PaginationItem>
+                </PaginationContent>
+              </Pagination>
+            </div>
           )}
         </div>
       </div>

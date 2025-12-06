@@ -10,7 +10,7 @@ import { ProfilePage } from './components/profile-page';
 import { Calendar, Search, User, LogOut, ChevronDown } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './components/ui/dropdown-menu';
 import { Toaster } from './components/ui/sonner';
-import { Course } from './components/course-data';
+import { Course } from './course-data';
 import { userDatabase, UserPreferences } from './components/user-data';
 import { toast } from 'sonner';
 
@@ -28,6 +28,7 @@ export default function App() {
   const [localReviews, setLocalReviews] = useState<any[]>([]);
   const [allReviewsByCourse, setAllReviewsByCourse] = useState<Record<string, any[]>>({});
   const [courseSelectedSchedules, setCourseSelectedSchedules] = useState<Record<string, string>>({}); // courseId -> selected schedule string
+  const [initialTab, setInitialTab] = useState<string>('overview'); // Track which tab to open in course detail
 
   // Check for existing user on app load and load preferences
   useEffect(() => {
@@ -145,28 +146,43 @@ export default function App() {
   };
 
   const handleReviewSubmit = (courseId: string, reviewData: any) => {
-    setUserReviews(prev => ({ ...prev, [courseId]: reviewData }));
-    setCourseHistory(prev => {
-      const existing = prev.find(item => item.course.id === courseId);
-      if (existing) {
-        return prev.map(item => 
-          item.course.id === courseId 
-            ? { ...item, hasReview: true, reviewData } 
-            : item
-        );
-      }
-      return prev;
-    });
+    // The actual review submission is handled in CourseDetail and user-data.ts
+    // This function now primarily ensures local state is updated
+    const updatedReviews = userDatabase.getReviewsForCourse(courseId);
+    setLocalReviews(updatedReviews);
+    setAllReviewsByCourse(prev => ({
+      ...prev,
+      [courseId]: updatedReviews
+    }));
+    // Update course history to reflect review status
+    setCourseHistory(prev => prev.map(item =>
+      item.course.id === courseId
+        ? { ...item, hasReview: true, reviewData: userDatabase.getUserReviewForCourse(courseId) }
+        : item
+    ));
   };
 
   const handleReviewDelete = (courseId: string, reviewId: string) => {
-    // Remove the review from local reviews state
-    setLocalReviews(prev => prev.filter(review => review.id !== reviewId));
-    // Also remove from all reviews by course
+    // Review deletion is now handled in course-detail.tsx using userDatabase
+    // This function updates the local state and course history
+    const updatedReviews = userDatabase.getReviewsForCourse(courseId);
+    setLocalReviews(updatedReviews);
     setAllReviewsByCourse(prev => ({
       ...prev,
-      [courseId]: (prev[courseId] || []).filter(review => review.id !== reviewId)
+      [courseId]: updatedReviews
     }));
+    
+    // Update courseHistory to reflect that the review was deleted
+    setCourseHistory(prev => {
+      return prev.map(item => {
+        if (item.course.id === courseId) {
+          // Check if user still has a review for this course
+          const hasReview = userDatabase.hasUserReviewedCourse(courseId);
+          return { ...item, hasReview, reviewData: hasReview ? userDatabase.getUserReviewForCourse(courseId) : undefined };
+        }
+        return item;
+      });
+    });
     toast.success('Review deleted successfully');
   };
 
@@ -201,15 +217,23 @@ export default function App() {
           <CourseBrowser 
             onCourseSelect={(course) => {
               setSelectedCourse(course);
-              // Load reviews for this course
-              setLocalReviews(allReviewsByCourse[course.id] || []);
+              setInitialTab('overview'); // Default to overview tab
+              // Load reviews from global storage
+              const reviews = userDatabase.getReviewsForCourse(course.id);
+              setLocalReviews(reviews);
+              setAllReviewsByCourse(prev => ({
+                ...prev,
+                [course.id]: reviews
+              }));
               setCurrentView('course-detail');
+              // Scroll to top when opening course details
+              window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
             calendarCourses={calendarCourses}
             onAddToCalendar={(course, selectedSchedule) => {
               setCalendarCourses(prev => {
                 const isAlreadyAdded = prev.some(c => c.id === course.id);
-                if (!isAlreadyAdded) {
+              if (!isAlreadyAdded) {
                   // Store the selected schedule for this course
                   if (selectedSchedule) {
                     setCourseSelectedSchedules(prevSchedules => ({
@@ -278,7 +302,7 @@ export default function App() {
             onAddToCalendar={(course, selectedSchedule) => {
               setCalendarCourses(prev => {
                 const isAlreadyAdded = prev.some(c => c.id === course.id);
-                if (!isAlreadyAdded) {
+              if (!isAlreadyAdded) {
                   // Store the selected schedule for this course
                   if (selectedSchedule) {
                     setCourseSelectedSchedules(prevSchedules => ({
@@ -340,6 +364,7 @@ export default function App() {
             onReviewDelete={handleReviewDelete}
             username={currentUser?.username || ''}
             localReviews={localReviews}
+            initialTab={initialTab}
             setLocalReviews={(reviews) => {
               setLocalReviews(reviews);
               // Also update all reviews by course
@@ -397,7 +422,17 @@ export default function App() {
             courseSelectedSchedules={courseSelectedSchedules}
             onCourseSelect={(course) => {
               setSelectedCourse(course);
+              setInitialTab('overview'); // Default to overview tab
+              // Load reviews from global storage
+              const reviews = userDatabase.getReviewsForCourse(course.id);
+              setLocalReviews(reviews);
+              setAllReviewsByCourse(prev => ({
+                ...prev,
+                [course.id]: reviews
+              }));
               setCurrentView('course-detail');
+              // Scroll to top when opening course details
+              window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
           />
         );
@@ -419,15 +454,36 @@ export default function App() {
             currentEnrolledCredits={currentEnrolledCredits}
             onCourseSelect={(course) => {
               setSelectedCourse(course);
+              setInitialTab('overview'); // Default to overview tab
               setCurrentView('course-detail');
             }}
             onWriteReview={(course) => {
               setSelectedCourse(course);
+              setInitialTab('reviews'); // Open to reviews tab
+              // Load reviews from global storage
+              const reviews = userDatabase.getReviewsForCourse(course.id);
+              setLocalReviews(reviews);
+              setAllReviewsByCourse(prev => ({
+                ...prev,
+                [course.id]: reviews
+              }));
               setCurrentView('course-detail');
+              // Scroll to top when opening course details
+              window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
             onEditReview={(course) => {
               setSelectedCourse(course);
+              setInitialTab('reviews'); // Open to reviews tab
+              // Load reviews from global storage
+              const reviews = userDatabase.getReviewsForCourse(course.id);
+              setLocalReviews(reviews);
+              setAllReviewsByCourse(prev => ({
+                ...prev,
+                [course.id]: reviews
+              }));
               setCurrentView('course-detail');
+              // Scroll to top when opening course details
+              window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
             onNavigate={setCurrentView}
             onLogout={handleLogout}

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
@@ -9,9 +9,10 @@ import { Slider } from './ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
+import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious, PaginationEllipsis } from './ui/pagination';
 import { Calendar, Clock, Plus, X, Edit2, Check, AlertCircle, Heart, ChevronDown } from 'lucide-react';
 import { toast } from "sonner";
-import { Course, mockCourses } from './course-data';
+import { Course, mockCourses } from '../course-data';
 
 interface CalendarViewProps {
   calendarCourses?: Course[];
@@ -26,11 +27,75 @@ interface CalendarViewProps {
 }
 
 const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
-const timeSlots = [
-  '8:00 AM', '9:00 AM', '10:00 AM', '11:00 AM', '12:00 PM',
-  '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM', '5:00 PM', '6:00 PM',
-  '7:00 PM', '8:00 PM', '9:00 PM', '10:00 PM', '11:00 PM'
-];
+// Display time slots with 30-minute subdivisions for user selection
+const generateTimeSlots = () => {
+  const slots: string[] = [];
+  // Start from 8:00 AM to 11:30 PM (inclusive)
+  for (let hour = 8; hour <= 23; hour++) {
+    for (let minute = 0; minute < 60; minute += 30) {
+      let displayHour = hour;
+      let period = 'AM';
+      
+      if (hour === 0) {
+        displayHour = 12;
+        period = 'AM';
+      } else if (hour < 12) {
+        displayHour = hour;
+        period = 'AM';
+      } else if (hour === 12) {
+        displayHour = 12;
+        period = 'PM';
+      } else {
+        displayHour = hour - 12;
+        period = 'PM';
+      }
+      
+      const timeStr = `${displayHour}:${minute.toString().padStart(2, '0')} ${period}`;
+      slots.push(timeStr);
+      
+      // Stop at 11:30 PM
+      if (hour === 23 && minute === 30) break;
+    }
+  }
+  return slots;
+};
+
+const timeSlots = generateTimeSlots();
+
+// Generate 1-minute interval times for precise calculations (internal use only)
+const generate1MinuteIntervals = () => {
+  const intervals: string[] = [];
+  // Start from 8:00 AM to 11:59 PM (inclusive) in 1-minute intervals
+  for (let hour = 8; hour <= 23; hour++) {
+    for (let minute = 0; minute < 60; minute += 1) {
+      let displayHour = hour;
+      let period = 'AM';
+      
+      if (hour === 0) {
+        displayHour = 12;
+        period = 'AM';
+      } else if (hour < 12) {
+        displayHour = hour;
+        period = 'AM';
+      } else if (hour === 12) {
+        displayHour = 12;
+        period = 'PM';
+      } else {
+        displayHour = hour - 12;
+        period = 'PM';
+      }
+      
+      const timeStr = `${displayHour}:${minute.toString().padStart(2, '0')} ${period}`;
+      intervals.push(timeStr);
+      
+      // Stop at 11:59 PM
+      if (hour === 23 && minute === 59) break;
+    }
+  }
+  return intervals;
+};
+
+const oneMinuteIntervals = generate1MinuteIntervals();
 
 const parseSchedule = (schedule: string) => {
   if (!schedule || typeof schedule !== 'string' || schedule === 'TBA' || schedule.includes('TBA')) {
@@ -92,8 +157,8 @@ const parseSchedule = (schedule: string) => {
     // Check for individual days
     if (schedule.includes(' M ') || schedule.startsWith('M ') || schedule.includes(' M')) {
       dayMap['M'].forEach(day => {
-        scheduleSlots.push({ day, startTime, endTime });
-      });
+      scheduleSlots.push({ day, startTime, endTime });
+    });
     }
     if (schedule.includes(' T ') || schedule.startsWith('T ') || (schedule.includes(' T') && !schedule.includes('Th'))) {
       dayMap['T'].forEach(day => {
@@ -141,25 +206,25 @@ const convertCoursesToTimeSlots = (courses: Course[], courseSelectedSchedules?: 
       
       schedulesToParse.forEach(scheduleStr => {
         const slots = parseSchedule(scheduleStr);
-        slots.forEach(slot => {
-          if (slot.day && slot.startTime) {
+      slots.forEach(slot => {
+        if (slot.day && slot.startTime) {
             // Use the endTime from parsed schedule, or calculate default
             const endTime = slot.endTime || calculateEndTime(slot.startTime);
-            timeSlots.push({
-              id: `${course.id}-${slot.day}-${slot.startTime}`,
-              day: slot.day,
-              startTime: slot.startTime,
+          timeSlots.push({
+            id: `${course.id}-${slot.day}-${slot.startTime}`,
+            day: slot.day,
+            startTime: slot.startTime,
               endTime: endTime,
-              course: {
-                id: course.id,
-                code: course.code || 'Unknown',
-                title: course.title || 'Unknown Course',
-                professor: course.professor || 'TBD',
+            course: {
+              id: course.id,
+              code: course.code || 'Unknown',
+              title: course.title || 'Unknown Course',
+              professor: course.professor || 'TBD',
                 location: 'TBD',
                 fullCourse: course // Store full course object for selection
-              }
-            });
-          }
+            }
+          });
+        }
         });
       });
     } catch (error) {
@@ -186,6 +251,10 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
   const [maxWorkload, setMaxWorkload] = useState(5);
   const [prerequisiteFilter, setPrerequisiteFilter] = useState<'all' | 'yes' | 'no'>('all');
   const [selectedCredits, setSelectedCredits] = useState<number[]>([]);
+  
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   const userSchedule = useMemo(() => {
     try {
@@ -297,32 +366,71 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
   };
 
   const isSlotOccupied = (day: string, time: string) => {
-    const normalizedTime = normalizeTimeForComparison(time);
+    // Use 1-minute precision internally for accurate highlighting
+    const checkTimeMin = timeToMinutes(normalizeTimeForComparison(time));
+    // Check all 1-minute intervals within this 30-minute slot
+    const slotStartMin = checkTimeMin;
+    const slotEndMin = checkTimeMin + 30; // 30 minutes later
+    
     return userSchedule.some(slot => {
       if (slot.day !== day) return false;
       
-      const slotStartMin = timeToMinutes(slot.startTime);
-      const slotEndMin = timeToMinutes(slot.endTime || calculateEndTime(slot.startTime));
-      const checkTimeMin = timeToMinutes(normalizeTimeForComparison(time));
+      const courseStartMin = timeToMinutes(slot.startTime);
+      const courseEndMin = timeToMinutes(slot.endTime || calculateEndTime(slot.startTime));
       
-      // Check if the time slot falls within the course's time range
-      return checkTimeMin >= slotStartMin && checkTimeMin < slotEndMin;
+      // Check if any part of this 30-minute slot overlaps with the course
+      // Course overlaps if: courseStartMin < slotEndMin && courseEndMin > slotStartMin
+      return courseStartMin < slotEndMin && courseEndMin > slotStartMin;
     });
   };
 
   const getSlotCourse = (day: string, time: string) => {
-    const normalizedTime = normalizeTimeForComparison(time);
+    // Use 1-minute precision internally for accurate highlighting
     const checkTimeMin = timeToMinutes(normalizeTimeForComparison(time));
+    const slotStartMin = checkTimeMin;
+    const slotEndMin = checkTimeMin + 30; // 30 minutes later
     
     return userSchedule.find(slot => {
       if (slot.day !== day) return false;
       
-      const slotStartMin = timeToMinutes(slot.startTime);
-      const slotEndMin = timeToMinutes(slot.endTime || calculateEndTime(slot.startTime));
+      const courseStartMin = timeToMinutes(slot.startTime);
+      const courseEndMin = timeToMinutes(slot.endTime || calculateEndTime(slot.startTime));
       
-      // Check if the time slot falls within the course's time range
-      return checkTimeMin >= slotStartMin && checkTimeMin < slotEndMin;
+      // Check if any part of this 30-minute slot overlaps with the course
+      return courseStartMin < slotEndMin && courseEndMin > slotStartMin;
     });
+  };
+  
+  // Get precise course block positioning within a 30-minute slot
+  const getCourseBlockStyle = (slotCourse: any, time: string): React.CSSProperties | undefined => {
+    if (!slotCourse) return undefined;
+    
+    const slotStartMin = timeToMinutes(normalizeTimeForComparison(time));
+    const slotEndMin = slotStartMin + 30; // 30 minutes later
+    const courseStartMin = timeToMinutes(slotCourse.startTime);
+    const courseEndMin = timeToMinutes(slotCourse.endTime || calculateEndTime(slotCourse.startTime));
+    
+    // Calculate where the course block starts and ends within this 30-minute slot
+    const blockStartMin = Math.max(courseStartMin, slotStartMin);
+    const blockEndMin = Math.min(courseEndMin, slotEndMin);
+    
+    // If course doesn't overlap with this slot, return undefined
+    if (blockStartMin >= blockEndMin) return undefined;
+    
+    // Calculate top offset and height as percentage of the 30-minute slot
+    const slotDuration = 30; // 30 minutes
+    const topPercent = ((blockStartMin - slotStartMin) / slotDuration) * 100;
+    const heightPercent = ((blockEndMin - blockStartMin) / slotDuration) * 100;
+    
+    return {
+      position: 'absolute',
+      top: `${topPercent}%`,
+      height: `${heightPercent}%`,
+      left: 0,
+      right: 0,
+      backgroundColor: 'rgb(191, 219, 254)', // bg-blue-200
+      zIndex: 1
+    };
   };
 
   const handleSlotClick = (day: string, time: string) => {
@@ -397,7 +505,7 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
     const start2Min = timeToMinutes(start2);
     const end2Min = timeToMinutes(end2 || calculateEndTime(start2));
     
-            return start1Min < end2Min && start2Min < end1Min;
+    return start1Min < end2Min && start2Min < end1Min;
   };
 
   const hasScheduleConflict = (course: Course) => {
@@ -610,6 +718,17 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
     (prerequisiteFilter !== 'all' ? 1 : 0) + 
     selectedCredits.length;
 
+  // Reset to page 1 when filters or selected slot change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedSlot, selectedDepartments, minRating, maxWorkload, prerequisiteFilter, selectedCredits]);
+
+  // Calculate pagination
+  const totalPages = Math.ceil(filteredCourses.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedCourses = filteredCourses.slice(startIndex, endIndex);
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
@@ -703,7 +822,7 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
             </CardHeader>
             <CardContent className="p-4">
               <div className="overflow-x-auto">
-                <div className="grid grid-cols-6 min-w-[700px] border border-gray-300">
+                <div className="grid grid-cols-6 min-w-[800px] border border-gray-300">
                   {/* Header Row */}
                   <div className="text-sm p-2 border-r border-b border-gray-300">Time</div>
                   {days.map((day, index) => (
@@ -716,80 +835,94 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
                   ))}
 
                   {/* Time Slots */}
-                  {timeSlots.map((time, timeIndex) => (
-                    <React.Fragment key={time}>
-                      <div className={`text-xs text-muted-foreground p-2 border-r border-b border-gray-300 text-right ${timeIndex === timeSlots.length - 1 ? 'border-b-0' : ''}`}>
-                        {time}
-                      </div>
-                      {days.map((day, dayIndex) => {
-                        const slotCourse = getSlotCourse(day, time);
-                        const isOccupied = isSlotOccupied(day, time);
-                        const isSelected = selectedSlot?.day === day && selectedSlot?.time === time;
-                        const isFirstBlock = slotCourse ? isFirstBlockOfCourse(day, time, slotCourse) : false;
-                        const blockAboveSameCourse = slotCourse ? hasBlockAbove(day, time, slotCourse) : false;
-                        
-                        // Determine border classes - shared borders between cells
-                        let borderClasses = '';
-                        // Always show right border except for last column
-                        if (dayIndex < days.length - 1) {
-                          borderClasses += 'border-r ';
-                        }
-                        // Show bottom border except for last row
-                        if (timeIndex < timeSlots.length - 1) {
-                          borderClasses += 'border-b ';
-                        }
-                        borderClasses += 'border-gray-300';
-                        
-                        // Determine background color
-                        let bgColor = '';
-                        if (isOccupied) {
-                          bgColor = 'bg-blue-100';
-                        } else if (isSelected) {
-                          bgColor = 'bg-yellow-100';
-                        } else {
-                          bgColor = 'hover:bg-gray-50';
-                        }
-                        
-                        return (
-                          <div
-                            key={`${day}-${time}`}
-                            className={`p-2 ${borderClasses} ${bgColor} min-h-[60px] transition-colors ${
-                              isOccupied 
-                                ? 'cursor-default'
-                                : 'cursor-pointer'
-                            }`}
-                            onClick={() => handleSlotClick(day, time)}
-                          >
-                            {slotCourse?.course && isFirstBlock && (
-                              <div className="text-xs relative group">
-                                <div className="font-medium text-blue-900">
-                                  {slotCourse.course.code} - {slotCourse.course.title}
+                  {timeSlots.map((time, timeIndex) => {
+                    // Check if this is a :30 slot (subdivision) for lighter border
+                    const isSubdivision = time.includes(':30');
+                    const isHourSlot = time.includes(':00');
+                    
+                    return (
+                      <React.Fragment key={time}>
+                        {/* Time column - no subdivision line, only show hour times */}
+                        <div className={`text-xs text-muted-foreground p-1 border-r border-b border-gray-300 text-right ${timeIndex === timeSlots.length - 1 ? 'border-b-0' : ''} ${isSubdivision ? 'border-t-0' : ''}`}>
+                          {isHourSlot ? time : null}
+                        </div>
+                        {days.map((day, dayIndex) => {
+                          const slotCourse = getSlotCourse(day, time);
+                          const isOccupied = isSlotOccupied(day, time);
+                          const isSelected = selectedSlot?.day === day && selectedSlot?.time === time;
+                          const isFirstBlock = slotCourse ? isFirstBlockOfCourse(day, time, slotCourse) : false;
+                          const courseBlockStyle = slotCourse ? getCourseBlockStyle(slotCourse, time) : undefined;
+                          
+                          // Determine border classes - shared borders between cells
+                          // Use lighter borders for :30 subdivisions in day columns only
+                          let borderClasses = '';
+                          // Always show right border except for last column
+                          if (dayIndex < days.length - 1) {
+                            borderClasses += `border-r ${isSubdivision ? 'border-gray-200' : 'border-gray-300'} `;
+                          }
+                          // Show bottom border except for last row
+                          if (timeIndex < timeSlots.length - 1) {
+                            borderClasses += `border-b ${isSubdivision ? 'border-gray-200' : 'border-gray-300'} `;
+                          }
+                          
+                          // Base background color (without course highlight)
+                          let bgColor = '';
+                          if (isSelected) {
+                            bgColor = 'bg-yellow-100';
+                          } else {
+                            bgColor = 'hover:bg-gray-50';
+                          }
+                          
+                          return (
+                            <div
+                              key={`${day}-${time}`}
+                              className={`relative p-1 ${borderClasses} ${bgColor} transition-colors ${
+                                isOccupied 
+                                  ? 'cursor-default'
+                                  : 'cursor-pointer'
+                              }`}
+                              style={{ minHeight: '30px', height: '30px' }}
+                              onClick={() => handleSlotClick(day, time)}
+                            >
+                              {/* Precise course block overlay using 1-minute intervals */}
+                              {courseBlockStyle && (
+                                <div 
+                                  className="absolute left-0 right-0"
+                                  style={courseBlockStyle}
+                                />
+                              )}
+                              
+                              {slotCourse?.course && isFirstBlock && (
+                                <div className="text-xs relative group z-10">
+                                  <div className="font-medium text-blue-900">
+                                    {slotCourse.course.code}
+                                  </div>
+                                  {onRemoveFromCalendar && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        onRemoveFromCalendar(slotCourse.course.id);
+                                        toast.success(`Removed ${slotCourse.course.code} from your calendar`);
+                                      }}
+                                      className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-xs hover:bg-red-600"
+                                      title="Remove from calendar"
+                                    >
+                                      ×
+                                    </button>
+                                  )}
                                 </div>
-                                {onRemoveFromCalendar && (
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      onRemoveFromCalendar(slotCourse.course.id);
-                                      toast.success(`Removed ${slotCourse.course.code} from your calendar`);
-                                    }}
-                                    className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-xs hover:bg-red-600"
-                                    title="Remove from calendar"
-                                  >
-                                    ×
-                                  </button>
-                                )}
-                              </div>
-                            )}
-                            {!isOccupied && isSelected && (
-                              <div className="text-xs text-center text-yellow-700">
-                                Click again to deselect
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </React.Fragment>
-                  ))}
+                              )}
+                              {!isOccupied && isSelected && (
+                                <div className="text-xs text-center text-yellow-700 relative z-10">
+                                  Click again to deselect
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </React.Fragment>
+                    );
+                  })}
                 </div>
               </div>
             </CardContent>
@@ -803,37 +936,37 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
             <Collapsible open={filtersExpanded} onOpenChange={setFiltersExpanded}>
               <CollapsibleTrigger asChild>
                 <CardHeader className="pb-4 cursor-pointer hover:bg-gray-50 transition-colors" style={{ backgroundColor: 'rgba(153, 0, 0, 0.05)' }}>
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg font-bold" style={{ color: '#990000' }}>
-                      🔍 Filters
-                    </CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg font-bold" style={{ color: '#990000' }}>
+                  🔍 Filters
+                </CardTitle>
                     <div className="flex items-center gap-2">
-                      {activeFiltersCount > 0 && (
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
+                {activeFiltersCount > 0 && (
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
                           onClick={(e) => {
                             e.stopPropagation();
                             clearFilters();
                           }}
-                          className="text-xs"
-                          style={{ color: '#990000', border: '1px solid #FFCC00' }}
-                        >
-                          Clear All
-                        </Button>
-                      )}
+                    className="text-xs"
+                    style={{ color: '#990000', border: '1px solid #FFCC00' }}
+                  >
+                    Clear All
+                  </Button>
+                )}
                       <ChevronDown className={`h-4 w-4 transition-transform ${filtersExpanded ? 'transform rotate-180' : ''}`} style={{ color: '#990000' }} />
                     </div>
-                  </div>
-                  {activeFiltersCount > 0 && (
-                    <CardDescription className="text-sm font-medium" style={{ color: '#990000' }}>
-                      {activeFiltersCount} filter{activeFiltersCount !== 1 ? 's' : ''} active
-                    </CardDescription>
-                  )}
-                </CardHeader>
+              </div>
+              {activeFiltersCount > 0 && (
+                <CardDescription className="text-sm font-medium" style={{ color: '#990000' }}>
+                  {activeFiltersCount} filter{activeFiltersCount !== 1 ? 's' : ''} active
+                </CardDescription>
+              )}
+            </CardHeader>
               </CollapsibleTrigger>
               <CollapsibleContent>
-                <CardContent className="space-y-6">
+            <CardContent className="space-y-6">
               {/* School/Department */}
               <div>
                 <Label className="mb-3 block font-semibold" style={{ color: '#990000' }}>
@@ -945,7 +1078,7 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
                   ))}
                 </div>
               </div>
-                </CardContent>
+            </CardContent>
               </CollapsibleContent>
             </Collapsible>
           </Card>
@@ -967,7 +1100,7 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3 max-h-[500px] overflow-y-auto">
+              <div className="space-y-3">
                 {!selectedSlot ? (
                   <div className="text-center py-8 text-sm text-muted-foreground">
                     Select time slots on the calendar to see courses available at that time
@@ -977,7 +1110,8 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
                     No courses available for this time slot with current filters
                   </div>
                 ) : (
-                  filteredCourses.map((course) => (
+                  <>
+                    {paginatedCourses.map((course) => (
                     <div
                       key={course.id}
                       className={`p-3 border rounded-lg text-sm ${
@@ -1054,9 +1188,9 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
                               // Single schedule - add directly
                               const schedule = availableSchedules[0];
                               const wasAdded = onAddToCalendar(course, schedule);
-                              if (wasAdded) {
+                            if (wasAdded) {
                                 toast.success(`Added ${course.code} (${schedule}) to your calendar!`);
-                                setSelectedSlot(null);
+                              setSelectedSlot(null);
                             } else {
                               toast.info(`${course.code} is already in your calendar`);
                               }
@@ -1067,7 +1201,67 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
                         {course.conflicts ? 'Time Conflict' : !selectedSlot ? 'Select a time slot first' : <><Plus className="h-3 w-3 mr-1" />Add to Schedule</>}
                       </Button>
                     </div>
-                  ))
+                    ))}
+                    
+                    {/* Pagination */}
+                    {filteredCourses.length > itemsPerPage && (
+                      <div className="mt-4">
+                        <Pagination>
+                          <PaginationContent>
+                            <PaginationItem>
+                              <PaginationPrevious 
+                                onClick={() => {
+                                  if (currentPage > 1) {
+                                    setCurrentPage(currentPage - 1);
+                                  }
+                                }}
+                                className={currentPage === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                              />
+                            </PaginationItem>
+                            
+                            {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
+                              // Show first page, last page, current page, and pages around current
+                              if (
+                                page === 1 ||
+                                page === totalPages ||
+                                (page >= currentPage - 1 && page <= currentPage + 1)
+                              ) {
+                                return (
+                                  <PaginationItem key={page}>
+                                    <PaginationLink
+                                      onClick={() => setCurrentPage(page)}
+                                      isActive={currentPage === page}
+                                      className="cursor-pointer"
+                                    >
+                                      {page}
+                                    </PaginationLink>
+                                  </PaginationItem>
+                                );
+                              } else if (page === currentPage - 2 || page === currentPage + 2) {
+                                return (
+                                  <PaginationItem key={page}>
+                                    <PaginationEllipsis />
+                                  </PaginationItem>
+                                );
+                              }
+                              return null;
+                            })}
+                            
+                            <PaginationItem>
+                              <PaginationNext 
+                                onClick={() => {
+                                  if (currentPage < totalPages) {
+                                    setCurrentPage(currentPage + 1);
+                                  }
+                                }}
+                                className={currentPage === totalPages ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                              />
+                            </PaginationItem>
+                          </PaginationContent>
+                        </Pagination>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </CardContent>
