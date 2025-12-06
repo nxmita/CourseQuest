@@ -78,10 +78,10 @@ export function LandingPage({ onGetStarted, onStartPlanning }: LandingPageProps)
               </CardHeader>
               <CardContent className="pt-0">
                 <ul className="space-y-2 text-sm text-muted-foreground">
-                  <li>• Detailed course reviews</li>
+                  <li>• Course details</li>
+                  <li>• Course reviews</li>
                   <li>• Syllabus archives</li>
                   <li>• Workload expectations</li>
-                  <li>• Professor comparisons</li>
                 </ul>
               </CardContent>
             </Card>
@@ -91,7 +91,7 @@ export function LandingPage({ onGetStarted, onStartPlanning }: LandingPageProps)
                 <div className="mx-auto w-12 h-12 rounded-lg flex items-center justify-center mb-4" style={{ backgroundColor: 'rgba(255, 204, 0, 0.2)' }}>
                   <Calendar className="h-6 w-6" style={{ color: '#990000' }} />
                 </div>
-                <CardTitle>Smart Scheduling</CardTitle>
+                <CardTitle>Timeslot Scheduling</CardTitle>
                 <CardDescription>
                   Visual calendar planning with conflict detection and optimization
                 </CardDescription>
@@ -99,7 +99,7 @@ export function LandingPage({ onGetStarted, onStartPlanning }: LandingPageProps)
               <CardContent className="pt-0">
                 <ul className="space-y-2 text-sm text-muted-foreground">
                   <li>• Interactive calendar view</li>
-                  <li>• Time slot finder</li>
+                  <li>• Time slot course finder</li>
                   <li>• Credit tracking</li>
                   <li>• Conflict detection</li>
                 </ul>
@@ -136,7 +136,7 @@ export function LandingPage({ onGetStarted, onStartPlanning }: LandingPageProps)
             Ready to take control of your schedule?
           </h2>
           <p className="text-xl text-muted-foreground mb-8 max-w-2xl mx-auto">
-            Join thousands of USC students who've already optimized their course planning with CourseQuest
+            Optimize course planning with CourseQuest!
           </p>
           <Button 
             size="lg" 
