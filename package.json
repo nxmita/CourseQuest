@@ -56,10 +56,12 @@
     "vaul": "^1.1.2"
   },
   "devDependencies": {
+    "@netlify/functions": "^5.1.0",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
+    "@vercel/node": "^5.5.15",
     "@vitejs/plugin-react": "^4.0.0",
     "autoprefixer": "^10.4.14",
     "eslint": "^8.45.0",
@@ -72,4 +74,3 @@
     "vite": "^4.4.0"
   }
 }
-

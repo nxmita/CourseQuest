@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Alert, AlertDescription } from './ui/alert';
-import { ArrowLeft, User, Mail, Lock, Eye, EyeOff, KeyRound } from 'lucide-react';
+import { ArrowLeft, User, Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import { userDatabase } from './user-data';
 import { toast } from 'sonner';
 
@@ -15,19 +15,16 @@ interface SignupPageProps {
 }
 
 export function SignupPage({ onBack, onSignupSuccess, onLogin }: SignupPageProps) {
-  const [step, setStep] = useState<'form' | 'verification'>('form');
   const [formData, setFormData] = useState({
     username: '',
     email: '',
     password: '',
-    confirmPassword: '',
-    verificationCode: ''
+    confirmPassword: ''
   });
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [errors, setErrors] = useState<{[key: string]: string}>({});
   const [isLoading, setIsLoading] = useState(false);
-  const [isSendingCode, setIsSendingCode] = useState(false);
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -70,15 +67,10 @@ export function SignupPage({ onBack, onSignupSuccess, onLogin }: SignupPageProps
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSendCode = async () => {
-    // Validate email before sending code
-    if (!formData.email) {
-      setErrors({ email: 'Email is required' });
-      return;
-    }
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     
-    if (!userDatabase.isValidUSCEmail(formData.email)) {
-      setErrors({ email: 'Please enter a valid USC email' });
+    if (!validateForm()) {
       return;
     }
 
@@ -89,45 +81,10 @@ export function SignupPage({ onBack, onSignupSuccess, onLogin }: SignupPageProps
       return;
     }
 
-    setIsSendingCode(true);
-    
-    try {
-      // Generate and send verification code
-      const code = userDatabase.generateVerificationCode();
-      userDatabase.sendVerificationCode(formData.email, code);
-      
-      // Show code in development (in production, this would be sent via email)
-      toast.success(`Verification code sent to ${formData.email}`, {
-        description: `Development: Your code is ${code}`,
-        duration: 10000
-      });
-      
-      setStep('verification');
-      setErrors({});
-    } catch (error) {
-      toast.error('Failed to send verification code. Please try again.');
-    } finally {
-      setIsSendingCode(false);
-    }
-  };
-
-  const handleVerifyCode = async () => {
-    if (!formData.verificationCode) {
-      setErrors({ verificationCode: 'Please enter the verification code' });
-      return;
-    }
-
     setIsLoading(true);
     
     try {
-      const verification = userDatabase.verifyCode(formData.email, formData.verificationCode);
-      
-      if (!verification.isValid) {
-        setErrors({ verificationCode: verification.message });
-        return;
-      }
-
-      // Code is valid, proceed with account creation
+      // Create account directly after validation
       const newUser = userDatabase.addUser({
         username: formData.username,
         email: formData.email,
@@ -135,8 +92,6 @@ export function SignupPage({ onBack, onSignupSuccess, onLogin }: SignupPageProps
       });
 
       if (newUser) {
-        // Clear verification code
-        userDatabase.clearVerificationCode(formData.email);
         userDatabase.setCurrentUser(newUser);
         toast.success('Account created successfully!');
         onSignupSuccess(newUser);
@@ -144,42 +99,14 @@ export function SignupPage({ onBack, onSignupSuccess, onLogin }: SignupPageProps
     } catch (error: any) {
       if (error.message === 'Username already exists') {
         setErrors({ username: 'This username is already taken' });
-        setStep('form');
       } else if (error.message === 'Email already exists') {
         setErrors({ email: 'This email is already registered' });
-        setStep('form');
       } else {
         toast.error('An error occurred during signup');
       }
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (step === 'form') {
-      if (!validateForm()) {
-        return;
-      }
-      // Send verification code instead of creating account
-      await handleSendCode();
-    } else {
-      // Verify code and create account
-      await handleVerifyCode();
-    }
-  };
-
-  const handleResendCode = async () => {
-    await handleSendCode();
-  };
-
-  const handleBackToForm = () => {
-    setStep('form');
-    setFormData(prev => ({ ...prev, verificationCode: '' }));
-    setErrors({});
-    userDatabase.clearVerificationCode(formData.email);
   };
 
   return (
@@ -221,8 +148,7 @@ export function SignupPage({ onBack, onSignupSuccess, onLogin }: SignupPageProps
           </CardHeader>
           
           <CardContent className="space-y-6">
-            {step === 'form' ? (
-              <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-4">
                 {/* Username */}
                 <div>
                   <Label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-2">
@@ -237,7 +163,7 @@ export function SignupPage({ onBack, onSignupSuccess, onLogin }: SignupPageProps
                       onChange={(e) => handleInputChange('username', e.target.value)}
                       className={`pl-10 ${errors.username ? 'border-red-500' : ''}`}
                       placeholder="Enter your username"
-                      disabled={isLoading || isSendingCode}
+                      disabled={isLoading}
                     />
                   </div>
                   {errors.username && (
@@ -259,7 +185,7 @@ export function SignupPage({ onBack, onSignupSuccess, onLogin }: SignupPageProps
                       onChange={(e) => handleInputChange('email', e.target.value)}
                       className={`pl-10 ${errors.email ? 'border-red-500' : ''}`}
                       placeholder="yourname@usc.edu"
-                      disabled={isLoading || isSendingCode}
+                      disabled={isLoading}
                     />
                   </div>
                   {errors.email && (
@@ -284,7 +210,7 @@ export function SignupPage({ onBack, onSignupSuccess, onLogin }: SignupPageProps
                       onChange={(e) => handleInputChange('password', e.target.value)}
                       className={`pl-10 pr-10 ${errors.password ? 'border-red-500' : ''}`}
                       placeholder="Enter your password"
-                      disabled={isLoading || isSendingCode}
+                      disabled={isLoading}
                     />
                     <button
                       type="button"
@@ -313,7 +239,7 @@ export function SignupPage({ onBack, onSignupSuccess, onLogin }: SignupPageProps
                       onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
                       className={`pl-10 pr-10 ${errors.confirmPassword ? 'border-red-500' : ''}`}
                       placeholder="Confirm your password"
-                      disabled={isLoading || isSendingCode}
+                      disabled={isLoading}
                     />
                     <button
                       type="button"
@@ -332,81 +258,12 @@ export function SignupPage({ onBack, onSignupSuccess, onLogin }: SignupPageProps
                 <Button
                   type="submit"
                   className="w-full"
-                  disabled={isLoading || isSendingCode}
-                  style={{ backgroundColor: '#990000', color: 'white' }}
-                >
-                  {isSendingCode ? 'Sending Code...' : 'Send Verification Code'}
-                </Button>
-              </form>
-            ) : (
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <Alert className="bg-blue-50 border-blue-200">
-                  <AlertDescription className="text-sm text-blue-800">
-                    We've sent a verification code to <strong>{formData.email}</strong>. Please check your email and enter the code below.
-                  </AlertDescription>
-                </Alert>
-
-                {/* Verification Code */}
-                <div>
-                  <Label htmlFor="verificationCode" className="block text-sm font-medium text-gray-700 mb-2">
-                    Verification Code
-                  </Label>
-                  <div className="relative">
-                    <KeyRound className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                    <Input
-                      id="verificationCode"
-                      type="text"
-                      value={formData.verificationCode}
-                      onChange={(e) => handleInputChange('verificationCode', e.target.value)}
-                      className={`pl-10 ${errors.verificationCode ? 'border-red-500' : ''}`}
-                      placeholder="Enter 6-digit code"
-                      maxLength={6}
-                      disabled={isLoading}
-                    />
-                  </div>
-                  {errors.verificationCode && (
-                    <p className="mt-1 text-sm text-red-600">{errors.verificationCode}</p>
-                  )}
-                  <p className="mt-1 text-xs text-gray-500">
-                    Enter the 6-digit code sent to your email
-                  </p>
-                </div>
-
-                {/* Submit Button */}
-                <Button
-                  type="submit"
-                  className="w-full"
                   disabled={isLoading}
                   style={{ backgroundColor: '#990000', color: 'white' }}
                 >
-                  {isLoading ? 'Verifying...' : 'Verify & Create Account'}
+                  {isLoading ? 'Creating Account...' : 'Create Account'}
                 </Button>
-
-                {/* Resend Code */}
-                <div className="text-center space-y-2">
-                  <p className="text-sm text-gray-600">
-                    Didn't receive the code?{' '}
-                    <button
-                      type="button"
-                      onClick={handleResendCode}
-                      className="font-medium hover:underline"
-                      style={{ color: '#990000' }}
-                      disabled={isSendingCode}
-                    >
-                      Resend Code
-                    </button>
-                  </p>
-                  <button
-                    type="button"
-                    onClick={handleBackToForm}
-                    className="text-sm text-gray-600 hover:underline"
-                    disabled={isLoading}
-                  >
-                    ← Back to form
-                  </button>
-                </div>
               </form>
-            )}
 
             {/* Login Link */}
             <div className="text-center">

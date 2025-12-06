@@ -197,8 +197,9 @@ export const userDatabase = {
   },
 
   // Send verification code (mock - in production this would send an actual email)
-  sendVerificationCode: (email: string, code: string): void => {
+  sendVerificationCode: async (email: string, code: string): Promise<boolean> => {
     try {
+      // Store code locally first
       const codes = userDatabase.getVerificationCodes();
       codes[email.toLowerCase()] = {
         code,
@@ -207,9 +208,55 @@ export const userDatabase = {
       };
       localStorage.setItem(VERIFICATION_CODES_KEY, JSON.stringify(codes));
       
-      // In a real app, this would send an email via a backend service
-      // For development, we'll log it to console and show in toast
-      console.log(`Verification code for ${email}: ${code}`);
+      // Try to send email via API
+      try {
+        // Check if we're in development (no API endpoint available)
+        const isDevelopment = import.meta.env.DEV;
+        
+        if (!isDevelopment) {
+          // Try Netlify function first, then Vercel API route
+          let apiUrl = '/.netlify/functions/send-verification-email';
+          
+          try {
+            const response = await fetch(apiUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ email, code })
+            });
+            
+            if (response.ok) {
+              return true;
+            }
+          } catch (netlifyError) {
+            // Try Vercel API route
+            apiUrl = '/api/send-verification-email';
+            try {
+              const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ email, code })
+              });
+              
+              if (response.ok) {
+                return true;
+              }
+            } catch (vercelError) {
+              console.warn('Email API not available, code will be shown in UI');
+            }
+          }
+        }
+        
+        // Fallback: log to console for development
+        console.log(`Verification code for ${email}: ${code}`);
+        return false; // Indicates email wasn't sent, will show in UI
+      } catch (apiError) {
+        console.warn('Email API error, code will be shown in UI:', apiError);
+        return false; // Indicates email wasn't sent, will show in UI
+      }
     } catch (error) {
       console.error('Error sending verification code:', error);
       throw error;
