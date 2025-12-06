@@ -257,9 +257,15 @@ export function CourseBrowser({ onCourseSelect, calendarCourses = [], onAddToCal
     });
   }, [allReviewsByCourse]);
 
+  // Helper function to normalize course code for search (remove hyphens)
+  const normalizeCourseCode = (code: string): string => {
+    return code.replace(/-/g, '').toLowerCase();
+  };
+
   // Optimize filtered courses with useMemo - no debouncing needed, useMemo handles performance
   const filteredCourses = useMemo(() => {
     const lowerQuery = searchQuery.toLowerCase();
+    const normalizedQuery = normalizeCourseCode(searchQuery);
     
     // Check if rating/workload filters are being used
     const ratingFiltersActive = minRating > 0 || maxWorkload < 5;
@@ -276,6 +282,7 @@ export function CourseBrowser({ onCourseSelect, calendarCourses = [], onAddToCal
       const matchesSearch = !lowerQuery || 
                          course.title.toLowerCase().includes(lowerQuery) ||
                          course.code.toLowerCase().includes(lowerQuery) ||
+                         normalizeCourseCode(course.code).includes(normalizedQuery) ||
                          (course.professors && course.professors.length > 0 
                            ? course.professors.some(p => p.toLowerCase().includes(lowerQuery))
                            : course.professor.toLowerCase().includes(lowerQuery));

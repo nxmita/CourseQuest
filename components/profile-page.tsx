@@ -81,12 +81,19 @@ export function ProfilePage({
     }
   };
 
+  // Helper function to normalize course code for search (remove hyphens)
+  const normalizeCourseCode = (code: string): string => {
+    return code.replace(/-/g, '').toLowerCase();
+  };
+
   const totalCreditsRequired = targetCredits - totalCreditsTaken;
   const completedCourseIds = courseHistory.map(item => item.course.id);
+  const normalizedSearchQuery = normalizeCourseCode(courseSearchQuery);
   const availableCourses = mockCourses.filter(course => 
     !completedCourseIds.includes(course.id) &&
     (courseSearchQuery === '' || 
      course.code.toLowerCase().includes(courseSearchQuery.toLowerCase()) ||
+     normalizeCourseCode(course.code).includes(normalizedSearchQuery) ||
      course.title.toLowerCase().includes(courseSearchQuery.toLowerCase()) ||
      (course.professors && course.professors.length > 0 
        ? course.professors.some(p => p.toLowerCase().includes(courseSearchQuery.toLowerCase()))
