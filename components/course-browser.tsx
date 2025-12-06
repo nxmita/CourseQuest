@@ -262,6 +262,37 @@ export function CourseBrowser({ onCourseSelect, calendarCourses = [], onAddToCal
     return code.replace(/-/g, '').toLowerCase();
   };
 
+  // Deduplicate courses by code - merge courses with same code into one with all schedules
+  const deduplicateCourses = useMemo(() => {
+    const courseMap = new Map<string, Course>();
+    
+    mockCourses.forEach(course => {
+      const codeKey = course.code.toLowerCase();
+      const existing = courseMap.get(codeKey);
+      
+      if (existing) {
+        // Merge schedules if they exist
+        const existingSchedules = existing.schedules || (existing.schedule ? [existing.schedule] : []);
+        const newSchedules = course.schedules || (course.schedule ? [course.schedule] : []);
+        
+        // Combine all unique schedules
+        const allSchedules = [...new Set([...existingSchedules, ...newSchedules])];
+        
+        // Update the existing course with merged schedules
+        courseMap.set(codeKey, {
+          ...existing,
+          schedules: allSchedules.length > 0 ? allSchedules : undefined,
+          schedule: allSchedules.length === 1 ? allSchedules[0] : existing.schedule
+        });
+      } else {
+        // First occurrence of this course code
+        courseMap.set(codeKey, course);
+      }
+    });
+    
+    return Array.from(courseMap.values());
+  }, []);
+
   // Optimize filtered courses with useMemo - no debouncing needed, useMemo handles performance
   const filteredCourses = useMemo(() => {
     const lowerQuery = searchQuery.toLowerCase();
@@ -278,7 +309,8 @@ export function CourseBrowser({ onCourseSelect, calendarCourses = [], onAddToCal
                      !lowerQuery;
     
     // First, filter by non-rating filters (search, department, prerequisites, credits)
-    const baseFiltered = mockCourses.filter(course => {
+    // Use deduplicated courses instead of mockCourses
+    const baseFiltered = deduplicateCourses.filter(course => {
       const matchesSearch = !lowerQuery || 
                          course.title.toLowerCase().includes(lowerQuery) ||
                          course.code.toLowerCase().includes(lowerQuery) ||
@@ -305,8 +337,15 @@ export function CourseBrowser({ onCourseSelect, calendarCourses = [], onAddToCal
         // If other filters are active but not rating/workload, use sortBy
         const statsA = getCourseStats(a);
         const statsB = getCourseStats(b);
-        const reviewsA = allReviewsByCourse[a.id] || [];
-        const reviewsB = allReviewsByCourse[b.id] || [];
+        // Get reviews for course by code (since courses are deduplicated by code)
+        const reviewsA = Object.values(allReviewsByCourse).flat().filter((r: any) => {
+          const course = deduplicateCourses.find(c => c.id === r.courseId);
+          return course && course.code.toLowerCase() === a.code.toLowerCase();
+        });
+        const reviewsB = Object.values(allReviewsByCourse).flat().filter((r: any) => {
+          const course = deduplicateCourses.find(c => c.id === r.courseId);
+          return course && course.code.toLowerCase() === b.code.toLowerCase();
+        });
         const hasRatingsA = reviewsA.length > 0;
         const hasRatingsB = reviewsB.length > 0;
         
@@ -369,7 +408,7 @@ export function CourseBrowser({ onCourseSelect, calendarCourses = [], onAddToCal
     
     // Return courses with ratings first, then courses without ratings
     return [...withRatings, ...withoutRatings];
-  }, [searchQuery, selectedDepartments, minRating, maxWorkload, prerequisiteFilter, selectedCredits, sortBy, getCourseStats, allReviewsByCourse]);
+  }, [searchQuery, selectedDepartments, minRating, maxWorkload, prerequisiteFilter, selectedCredits, sortBy, getCourseStats, allReviewsByCourse, deduplicateCourses]);
 
   // Reset to page 1 when filters change
   useEffect(() => {
@@ -479,8 +518,8 @@ export function CourseBrowser({ onCourseSelect, calendarCourses = [], onAddToCal
   const handleAddToCalendar = (course: Course, e: React.MouseEvent) => {
     e.stopPropagation();
     
-    // Check if course is already in calendar
-    if (calendarCourses.some(c => c.id === course.id)) {
+    // Check if course is already in calendar (by code, not just ID)
+    if (calendarCourses.some(c => c.code.toLowerCase() === course.code.toLowerCase())) {
       toast.info(`${course.code} is already in your calendar`);
       return;
     }

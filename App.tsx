@@ -232,7 +232,8 @@ export default function App() {
             calendarCourses={calendarCourses}
             onAddToCalendar={(course, selectedSchedule) => {
               setCalendarCourses(prev => {
-                const isAlreadyAdded = prev.some(c => c.id === course.id);
+                // Check by course code, not just ID (to handle deduplicated courses)
+                const isAlreadyAdded = prev.some(c => c.code.toLowerCase() === course.code.toLowerCase());
               if (!isAlreadyAdded) {
                   // Store the selected schedule for this course
                   if (selectedSchedule) {
@@ -246,7 +247,7 @@ export default function App() {
                 return prev;
               });
               // Return true if course wasn't already added (check current state for return value)
-              const wasAdded = !calendarCourses.some(c => c.id === course.id);
+              const wasAdded = !calendarCourses.some(c => c.code.toLowerCase() === course.code.toLowerCase());
               return wasAdded;
             }}
             onRemoveFromCalendar={(courseId) => {
@@ -301,7 +302,8 @@ export default function App() {
             calendarCourses={calendarCourses}
             onAddToCalendar={(course, selectedSchedule) => {
               setCalendarCourses(prev => {
-                const isAlreadyAdded = prev.some(c => c.id === course.id);
+                // Check by course code, not just ID (to handle deduplicated courses)
+                const isAlreadyAdded = prev.some(c => c.code.toLowerCase() === course.code.toLowerCase());
               if (!isAlreadyAdded) {
                   // Store the selected schedule for this course
                   if (selectedSchedule) {
@@ -315,7 +317,7 @@ export default function App() {
                 return prev;
               });
               // Return true if course wasn't already added
-              const wasAdded = !calendarCourses.some(c => c.id === course.id);
+              const wasAdded = !calendarCourses.some(c => c.code.toLowerCase() === course.code.toLowerCase());
               return wasAdded;
             }}
             onRemoveFromCalendar={(courseId) => {
@@ -331,7 +333,8 @@ export default function App() {
               // Atomically replace old course with new course
               setCalendarCourses(prev => {
                 const filtered = prev.filter(c => c.id !== oldCourseId);
-                const isAlreadyAdded = filtered.some(c => c.id === newCourse.id);
+                // Check by course code, not just ID
+                const isAlreadyAdded = filtered.some(c => c.code.toLowerCase() === newCourse.code.toLowerCase());
                 if (!isAlreadyAdded) {
                   // Store the selected schedule for the new course
                   if (selectedSchedule) {
@@ -401,7 +404,8 @@ export default function App() {
               });
             }}
             onAddToCalendar={(course, selectedSchedule) => {
-              const isAlreadyAdded = calendarCourses.some(c => c.id === course.id);
+              // Check by course code, not just ID (to handle deduplicated courses)
+              const isAlreadyAdded = calendarCourses.some(c => c.code.toLowerCase() === course.code.toLowerCase());
               if (!isAlreadyAdded) {
                 setCalendarCourses([...calendarCourses, course]);
                 // Store the selected schedule for this course

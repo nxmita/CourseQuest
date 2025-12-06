@@ -94,7 +94,8 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const [actionSuccess, setActionSuccess] = useState(false);
   
-  const isInCalendar = calendarCourses.some(c => c.id === course.id);
+  // Check by course code, not just ID (to handle deduplicated courses)
+  const isInCalendar = calendarCourses.some(c => c.code.toLowerCase() === course.code.toLowerCase());
 
   // Scroll to top when component mounts
   useEffect(() => {
@@ -107,7 +108,8 @@ export function CourseDetail({ course, onBack, calendarCourses = [], onAddToCale
     if (setLocalReviews) {
       setLocalReviews(storedReviews);
     }
-  }, [course.id, setLocalReviews]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [course.id]); // setLocalReviews is stable and doesn't need to be in deps
 
   // Get reviews for this course or use empty array - use only local reviews
   const courseReviews = localReviews;

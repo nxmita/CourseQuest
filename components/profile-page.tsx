@@ -86,11 +86,42 @@ export function ProfilePage({
     return code.replace(/-/g, '').toLowerCase();
   };
 
+  // Deduplicate courses by code - merge courses with same code into one with all schedules
+  const deduplicatedCourses = React.useMemo(() => {
+    const courseMap = new Map<string, Course>();
+    
+    mockCourses.forEach(course => {
+      const codeKey = course.code.toLowerCase();
+      const existing = courseMap.get(codeKey);
+      
+      if (existing) {
+        // Merge schedules if they exist
+        const existingSchedules = existing.schedules || (existing.schedule ? [existing.schedule] : []);
+        const newSchedules = course.schedules || (course.schedule ? [course.schedule] : []);
+        
+        // Combine all unique schedules
+        const allSchedules = [...new Set([...existingSchedules, ...newSchedules])];
+        
+        // Update the existing course with merged schedules
+        courseMap.set(codeKey, {
+          ...existing,
+          schedules: allSchedules.length > 0 ? allSchedules : undefined,
+          schedule: allSchedules.length === 1 ? allSchedules[0] : existing.schedule
+        });
+      } else {
+        // First occurrence of this course code
+        courseMap.set(codeKey, course);
+      }
+    });
+    
+    return Array.from(courseMap.values());
+  }, []);
+
   const totalCreditsRequired = targetCredits - totalCreditsTaken;
-  const completedCourseIds = courseHistory.map(item => item.course.id);
+  const completedCourseCodes = courseHistory.map(item => item.course.code.toLowerCase());
   const normalizedSearchQuery = normalizeCourseCode(courseSearchQuery);
-  const availableCourses = mockCourses.filter(course => 
-    !completedCourseIds.includes(course.id) &&
+  const availableCourses = deduplicatedCourses.filter(course => 
+    !completedCourseCodes.includes(course.code.toLowerCase()) &&
     (courseSearchQuery === '' || 
      course.code.toLowerCase().includes(courseSearchQuery.toLowerCase()) ||
      normalizeCourseCode(course.code).includes(normalizedSearchQuery) ||

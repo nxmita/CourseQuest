@@ -8,6 +8,7 @@ import { Checkbox } from './ui/checkbox';
 import { Slider } from './ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from './ui/alert-dialog';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious, PaginationEllipsis } from './ui/pagination';
 import { Calendar, Clock, Plus, X, Edit2, Check, AlertCircle, Heart, ChevronDown } from 'lucide-react';
@@ -243,6 +244,10 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
   const [timeslotDialogOpen, setTimeslotDialogOpen] = useState(false);
   const [selectedCourseForTimeslot, setSelectedCourseForTimeslot] = useState<Course | null>(null);
   const [selectedScheduleForDialog, setSelectedScheduleForDialog] = useState<string>('');
+  const [conflictDialogOpen, setConflictDialogOpen] = useState(false);
+  const [conflictCourse, setConflictCourse] = useState<Course | null>(null);
+  const [conflictNewCourse, setConflictNewCourse] = useState<Course | null>(null);
+  const [conflictSelectedSchedule, setConflictSelectedSchedule] = useState<string>('');
   
   // Filters
   const [filtersExpanded, setFiltersExpanded] = useState(false);
@@ -508,6 +513,61 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
     return start1Min < end2Min && start2Min < end1Min;
   };
 
+  // Check for conflicts between a schedule and existing calendar courses
+  const checkScheduleConflict = (newSchedule: string, newCourse: Course): { hasConflict: boolean; conflictingCourse: Course | null } => {
+    if (!calendarCourses || calendarCourses.length === 0) {
+      return { hasConflict: false, conflictingCourse: null };
+    }
+
+    const newSlots = parseSchedule(newSchedule);
+    
+    for (const existingCourse of calendarCourses) {
+      // Check by code, not just ID (to handle deduplicated courses)
+      if (existingCourse.code.toLowerCase() === newCourse.code.toLowerCase()) {
+        continue; // Skip the same course
+      }
+
+      // Get the selected schedule for existing course
+      let existingSchedules: string[] = [];
+      if (courseSelectedSchedules[existingCourse.id]) {
+        existingSchedules = [courseSelectedSchedules[existingCourse.id]];
+      } else {
+        existingSchedules = (existingCourse.schedules && existingCourse.schedules.length > 0) 
+          ? existingCourse.schedules 
+          : (existingCourse.schedule ? [existingCourse.schedule] : []);
+      }
+
+      // Check if any slots conflict
+      for (const existingSchedule of existingSchedules) {
+        const existingSlots = parseSchedule(existingSchedule);
+        
+        for (const newSlot of newSlots) {
+          if (!newSlot.day || !newSlot.startTime) continue;
+          
+          for (const existingSlot of existingSlots) {
+            if (!existingSlot.day || !existingSlot.startTime) continue;
+            
+            if (newSlot.day === existingSlot.day) {
+              const newEndTime = newSlot.endTime || calculateEndTime(newSlot.startTime);
+              const existingEndTime = existingSlot.endTime || calculateEndTime(existingSlot.startTime);
+              
+              if (timesOverlap(
+                newSlot.startTime,
+                newEndTime,
+                existingSlot.startTime,
+                existingEndTime
+              )) {
+                return { hasConflict: true, conflictingCourse: existingCourse };
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    return { hasConflict: false, conflictingCourse: null };
+  };
+
   const hasScheduleConflict = (course: Course) => {
     try {
       if (!calendarCourses || calendarCourses.length === 0 || !selectedSlot) {
@@ -520,47 +580,8 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
         return false; // No matching schedule found, no conflict
       }
       
-      const newCourseSlots = parseSchedule(matchingSchedule);
-      
-      return calendarCourses.some(existingCourse => {
-        if (!existingCourse) return false;
-        
-        // Get the selected schedule for existing course, or all schedules if none selected
-        let existingCourseSchedules: string[] = [];
-        if (courseSelectedSchedules[existingCourse.id]) {
-          // Only check against the selected schedule for this course
-          existingCourseSchedules = [courseSelectedSchedules[existingCourse.id]];
-        } else {
-          // Fall back to all schedules (for backward compatibility)
-          existingCourseSchedules = (existingCourse.schedules && existingCourse.schedules.length > 0) 
-            ? existingCourse.schedules 
-            : (existingCourse.schedule ? [existingCourse.schedule] : []);
-        }
-        
-        const existingSlots: any[] = [];
-        existingCourseSchedules.forEach(scheduleStr => {
-          const slots = parseSchedule(scheduleStr);
-          existingSlots.push(...slots);
-        });
-        
-        return newCourseSlots.some(newSlot => {
-          if (!newSlot.day || !newSlot.startTime) return false;
-          
-          return existingSlots.some(existingSlot => {
-            if (!existingSlot.day || !existingSlot.startTime) return false;
-            
-            if (newSlot.day === existingSlot.day) {
-              return timesOverlap(
-                newSlot.startTime, 
-                newSlot.endTime || calculateEndTime(newSlot.startTime),
-                existingSlot.startTime, 
-                existingSlot.endTime || calculateEndTime(existingSlot.startTime)
-              );
-            }
-            return false;
-          });
-        });
-      });
+      const conflict = checkScheduleConflict(matchingSchedule, course);
+      return conflict.hasConflict;
     } catch (error) {
       console.warn('Error checking schedule conflict:', course.code, error);
       return false;
@@ -640,10 +661,42 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
     };
   };
 
+  // Deduplicate courses by code - merge courses with same code into one with all schedules
+  const deduplicatedCourses = useMemo(() => {
+    const courseMap = new Map<string, Course>();
+    
+    mockCourses.forEach(course => {
+      const codeKey = course.code.toLowerCase();
+      const existing = courseMap.get(codeKey);
+      
+      if (existing) {
+        // Merge schedules if they exist
+        const existingSchedules = existing.schedules || (existing.schedule ? [existing.schedule] : []);
+        const newSchedules = course.schedules || (course.schedule ? [course.schedule] : []);
+        
+        // Combine all unique schedules
+        const allSchedules = [...new Set([...existingSchedules, ...newSchedules])];
+        
+        // Update the existing course with merged schedules
+        courseMap.set(codeKey, {
+          ...existing,
+          schedules: allSchedules.length > 0 ? allSchedules : undefined,
+          schedule: allSchedules.length === 1 ? allSchedules[0] : existing.schedule
+        });
+      } else {
+        // First occurrence of this course code
+        courseMap.set(codeKey, course);
+      }
+    });
+    
+    return Array.from(courseMap.values());
+  }, []);
+
   const getFilteredCourses = () => {
     try {
-      let courses = mockCourses.filter(course => {
-        return !calendarCourses.some(calCourse => calCourse && calCourse.id === course.id);
+      // Use deduplicated courses and check by code, not just ID
+      let courses = deduplicatedCourses.filter(course => {
+        return !calendarCourses.some(calCourse => calCourse && calCourse.code.toLowerCase() === course.code.toLowerCase());
       });
 
       // Check if rating/workload filters are being used
@@ -1310,13 +1363,29 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
               Cancel
             </Button>
             <Button onClick={() => {
-              if (selectedCourseForTimeslot && selectedScheduleForDialog && onAddToCalendar) {
-                const wasAdded = onAddToCalendar(selectedCourseForTimeslot, selectedScheduleForDialog);
-                if (wasAdded) {
-                  toast.success(`Added ${selectedCourseForTimeslot.code} (${selectedScheduleForDialog}) to your calendar!`);
-                  setSelectedSlot(null);
-                } else {
-                  toast.info(`${selectedCourseForTimeslot.code} is already in your calendar`);
+              if (selectedCourseForTimeslot && selectedScheduleForDialog) {
+                // Check for conflicts before adding
+                const conflict = checkScheduleConflict(selectedScheduleForDialog, selectedCourseForTimeslot);
+                
+                if (conflict.hasConflict && conflict.conflictingCourse) {
+                  // Show conflict dialog
+                  setConflictNewCourse(selectedCourseForTimeslot);
+                  setConflictSelectedSchedule(selectedScheduleForDialog);
+                  setConflictCourse(conflict.conflictingCourse);
+                  setTimeslotDialogOpen(false);
+                  setConflictDialogOpen(true);
+                  return;
+                }
+                
+                // No conflict, add the course
+                if (onAddToCalendar) {
+                  const wasAdded = onAddToCalendar(selectedCourseForTimeslot, selectedScheduleForDialog);
+                  if (wasAdded) {
+                    toast.success(`Added ${selectedCourseForTimeslot.code} (${selectedScheduleForDialog}) to your calendar!`);
+                    setSelectedSlot(null);
+                  } else {
+                    toast.info(`${selectedCourseForTimeslot.code} is already in your calendar`);
+                  }
                 }
               }
               setTimeslotDialogOpen(false);
@@ -1328,6 +1397,45 @@ export function CalendarView({ calendarCourses = [], onRemoveFromCalendar, onAdd
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Conflict Resolution Dialog */}
+      <AlertDialog open={conflictDialogOpen} onOpenChange={setConflictDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Time Conflict Detected</AlertDialogTitle>
+            <AlertDialogDescription>
+              {conflictCourse && conflictNewCourse && (
+                <div className="space-y-2">
+                  <p>
+                    <span className="font-semibold">{conflictNewCourse.code}</span> conflicts with{' '}
+                    <span className="font-semibold">{conflictCourse.code}</span> already in your calendar.
+                  </p>
+                  <p>Would you like to replace {conflictCourse.code} with {conflictNewCourse.code}?</p>
+                </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (conflictNewCourse && conflictSelectedSchedule && conflictCourse && onReplaceCourse) {
+                  onReplaceCourse(conflictCourse.id, conflictNewCourse, conflictSelectedSchedule);
+                  toast.success(`Replaced ${conflictCourse.code} with ${conflictNewCourse.code} in your calendar!`);
+                  setSelectedSlot(null);
+                }
+                setConflictDialogOpen(false);
+                setConflictCourse(null);
+                setConflictNewCourse(null);
+                setConflictSelectedSchedule('');
+              }}
+              style={{ backgroundColor: '#990000', color: 'white' }}
+            >
+              Replace
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
