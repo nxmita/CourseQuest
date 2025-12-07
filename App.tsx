@@ -14,6 +14,7 @@ import { Course } from './course-data';
 import { userDatabase, UserPreferences } from './components/user-data';
 import { toast } from 'sonner';
 import { GoogleAnalytics, trackPageView } from './components/analytics';
+import { Analytics } from '@vercel/analytics/react';
 
 // Helper function to get view from URL hash
 const getViewFromUrl = (): string => {
@@ -578,6 +579,7 @@ export default function App() {
     return (
       <>
         <GoogleAnalytics />
+        <Analytics />
         {renderCurrentView()}
         <Toaster />
       </>
@@ -671,6 +673,7 @@ export default function App() {
       </main>
       
       <GoogleAnalytics />
+      <Analytics />
       <Toaster />
     </div>
   );
